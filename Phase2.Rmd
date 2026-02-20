@@ -1,0 +1,121 @@
+---
+title: "R Notebook"
+date: "`r format(Sys.Date(), '%2 %1, %2026`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r packages}
+# Installing needed packages
+library(movMF)
+library(Directional)
+library(ggplot2)
+```
+
+```{r seed}
+set.seed(144)
+```
+
+# Simulation: Generating vMF Data in 3D
+
+## Creating Parameter set: Basic
+
+```{r basic params}
+# A very "normal" set of parameters for a vMF analysis. 
+mu_base <- c(0, 0, 1) # mean direction
+kappa_base <- 10
+n_base <- 200
+
+# Normalizing base parameters
+mu_base_norm <- sqrt(sum(mu_base^2))
+mu_base_norm
+
+# Checking if mu is normalized. If not, it is normalized
+mu_base <- mu_base / sqrt(sum(mu_base^2))
+mu_base
+```
+
+## Creating Parameter set: Challenge
+```{r challenging params}
+# A more challenging set of parameters for a vMF analysis, with less concentration and a 
+# smaller sample size
+mu_challenge <- c(0, 0, 1)
+kappa_challenge <- 5
+n_challenge <- 50
+
+# Normalizing challenge parameters
+mu_challenge_norm <- sqrt(sum(mu_challenge^2))
+mu_challenge_norm
+
+# Checking if challenge mu is normalized. If not, it is normalized
+mu_challenge <- mu_challenge / sqrt(sum(mu_challenge^2))
+mu_challenge
+```
+
+```{r Data Simulation: Base}
+X_base <- rmovMF(n_base, mu_base, kappa_base)
+head(X_base)
+```
+
+```{r Sanity Check: X_base Unit Length}
+lens_base <- sqrt(rowSums(X_base^2))
+summary(lens_base)
+lens_challenge <- sqrt(rowSums(X_base^2))
+summary(lens_challenge)
+```
+
+```{r Data Simulation: Challenge}
+X_challenge <- rmovMF(n_challenge, mu_challenge, kappa_challenge)
+head(X_challenge)
+```
+
+```{r Sanity Check: X_challenge Unit Length}
+lens_base <- sqrt(rowSums(X_challenge^2))
+summary(lens_base)
+lens_challenge <- sqrt(rowSums(X_challenge^2))
+summary(lens_challenge)
+```
+# Visualization
+
+## 2D Projection (x vs y)
+
+```{r plot-xy: base}
+df <- data.frame(x = X_challenge[,1], y = X_challenge[,2], z = X_challenge[,3])
+
+ggplot(df, aes(x, y)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of vMF Samples (x vs y)", x = "x", y = "y")
+```
+
+## 3D Projection (Interactive)
+```{r plot-3d}
+library(rgl)
+open3d()
+plot3d(X_challenge, col = "blue", size = 5)
+rglwidget()
+```
+
+```{Parameter Estimation}
+
+```
+
+```{Experiment 1 - Sample Size}
+
+```
+
+```{Experiment 2 - Concentration}
+
+```
+
+```{Interpretation and Writing}
+
+```
