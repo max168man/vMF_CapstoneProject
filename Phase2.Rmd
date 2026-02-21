@@ -1,6 +1,6 @@
 ---
 title: "R Notebook"
-date: "`r format(Sys.Date(), '%2 %1, %2026`"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
 output:
   html_document:
     toc: true
@@ -12,25 +12,32 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
 
+# R Environment Setup
+
 ```{r packages}
 # Installing needed packages
 library(movMF)
 library(Directional)
 library(ggplot2)
 ```
-
+Setting a seed allows us to recreate the data generated here, rather than having different data every time the file is ran.
 ```{r seed}
 set.seed(144)
 ```
 
 # Simulation: Generating vMF Data in 3D
+In order to a handle on what simulated vMF data is like, we use two datasets here for some small initial tests. The first is a "basic" set of parameters that generate simple vMF data to work with, and the second is a "challenge" set of parameters that makes more difficult vMF data to work with.
+
+The parameters we are working with are as follows:<br>
+- mu: The mean direction unit vectors are pointing in. This cannot be made more difficult, and all mu values will be of equal complexity for movMF to work with.<br>
+- kappa: The measure of how strongly data is concentrated around the mean direction. A lower value means lower concentration, making it more difficult for movMF to estimate the mean direction. A value of 0 would even mean complete dispersion of unit vectors, with no adherence to the mean direction whatsoever. A higher concentration means increasing adherence to the mean direction.<br>
+- n: The number of unit vectors we are working with. Higher values of n means a greater sample size for movMF to work with, creating more ease of estimating the mean direction.
 
 ## Creating Parameter set: Basic
-
 ```{r basic params}
 # A very "normal" set of parameters for a vMF analysis. 
 mu_base <- c(0, 0, 1) # mean direction
-kappa_base <- 10
+kappa_base <- 10 
 n_base <- 200
 
 # Normalizing base parameters
@@ -44,8 +51,7 @@ mu_base
 
 ## Creating Parameter set: Challenge
 ```{r challenging params}
-# A more challenging set of parameters for a vMF analysis, with less concentration and a 
-# smaller sample size
+# A more challenging set of parameters for a vMF analysis, with less concentration and a smaller sample size
 mu_challenge <- c(0, 0, 1)
 kappa_challenge <- 5
 n_challenge <- 50
@@ -59,17 +65,26 @@ mu_challenge <- mu_challenge / sqrt(sum(mu_challenge^2))
 mu_challenge
 ```
 
+# Data Simulation
+## Simulating base vMF distribution data
+This will simulate the hundred data points requested in the base vMF data.
+We only print the head of data created, so six points are visible.
+Printing the length of the data divided by three confirms 200 points were created, with three coordinates each.
 ```{r Data Simulation: Base}
 X_base <- rmovMF(n_base, mu_base, kappa_base)
 head(X_base)
+print("length: " )
+print(length(X_base)/3)
 ```
+
+We need to always sanity check this because vectors must be unit length. If not, k estimations will not function.
 
 ```{r Sanity Check: X_base Unit Length}
 lens_base <- sqrt(rowSums(X_base^2))
 summary(lens_base)
-lens_challenge <- sqrt(rowSums(X_base^2))
-summary(lens_challenge)
 ```
+
+We repeat this process with challenge vMF data.
 
 ```{r Data Simulation: Challenge}
 X_challenge <- rmovMF(n_challenge, mu_challenge, kappa_challenge)
@@ -77,44 +92,330 @@ head(X_challenge)
 ```
 
 ```{r Sanity Check: X_challenge Unit Length}
-lens_base <- sqrt(rowSums(X_challenge^2))
-summary(lens_base)
 lens_challenge <- sqrt(rowSums(X_challenge^2))
 summary(lens_challenge)
 ```
 # Visualization
-
+We can get a decent grasp on what this data actually looks like by visualizing it, both in 2d planes and a 3d sphere presentation.
 ## 2D Projection (x vs y)
 
 ```{r plot-xy: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(x, y)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (x vs y)", x = "x", y = "y")
+```
+
+```{r plot-xy: challenge}
 df <- data.frame(x = X_challenge[,1], y = X_challenge[,2], z = X_challenge[,3])
 
 ggplot(df, aes(x, y)) +
   geom_point(alpha = 0.6) +
   coord_equal() +
   theme_minimal() +
-  labs(title = "Projection of vMF Samples (x vs y)", x = "x", y = "y")
+  labs(title = "Projection of challenge vMF data Samples (x vs y)", x = "x", y = "y")
+```
+In both x vs. y charts, there seems to be no particular pattern to the data. This is to be expected, as the points only cluster towards z = 1, and are indifferent to x and y coordinates.
+```{r plot-xz: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(x, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (x vs z)", x = "x", z = "z")
 ```
 
+```{r plot-xz: challenge}
+df <- data.frame(x = X_challenge[,1], y = X_challenge[,2], z = X_challenge[,3])
+
+ggplot(df, aes(x, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of challenge vMF data Samples (x vs z)", x = "x", z = "z")
+```
+Now we can see a clear pattern of concentration towards z = 1, even in the less concentrated challenge data set.
+```{r plot-yz: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(y, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (y vs z)", y = "y", z = "z")
+```
+
+```{r plot-yz: challenge}
+df <- data.frame(x = X_challenge[,1], y = X_challenge[,2], z = X_challenge[,3])
+
+ggplot(df, aes(y, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of challenge vMF data Samples (y vs z)", y = "y", z = "z")
+```
+With Y vs Z data, a similar pattern holds.
+However, a 3D project will give us the most human-readable view of how the data is dispersed.
+
 ## 3D Projection (Interactive)
-```{r plot-3d}
+```{r base plot-3d}
+library(rgl)
+open3d()
+plot3d(X_base, col = "blue", size = 5)
+rglwidget()
+```
+
+```{r challenge plot-3d}
 library(rgl)
 open3d()
 plot3d(X_challenge, col = "blue", size = 5)
 rglwidget()
 ```
 
-```{Parameter Estimation}
+One can see that the data points in both sets concentrate towards z = -1.However, the challenge set has much more dispersal and fewer points to deduce this estimate from - will movMF be able to see the pattern? In parameter estimation, we can contrast how effective it is between the two datasets.
 
+# Parameter Estimation
+
+## Estimation of mean
+First we estimate the sample mean, which must be normalized:
+
+\[
+\hat{\mu} = \frac{\bar{x}}{\|\bar{x}\|}
+\]
+
+```{r Parameter Estimation: Base}
+# Estimating base mean
+mu_base_hat_raw <- colMeans(X_base)
+mu_base_hat <- mu_base_hat_raw / sqrt(sum(mu_base_hat_raw^2))
+mu_base_hat
 ```
 
-```{Experiment 1 - Sample Size}
-
+```{r Parameter Estimation: Challenge}
+# Estimating challenge mean
+mu_challenge_hat_raw <- colMeans(X_challenge)
+mu_challenge_hat <- mu_challenge_hat_raw / sqrt(sum(mu_challenge_hat_raw^2))
+mu_challenge_hat
 ```
 
-```{Experiment 2 - Concentration}
+As we can see here, the challenge mean seems slightly more varied from the true mean of (0, 0, 1). The x coordinate is coincidentally less far off - but the y, and most importantly z, coordinates are a bit further off.
 
+## Measurement of errors via angles
+
+We can measure the error between true mu and the estimated one by taking the angle between the vectors.
+
+```{r base mu-comparison}
+mu_base_true <- mu_base
+
+# Angle between vectors
+angle_base_rad <- acos(sum(mu_base_true * mu_base_hat))
+angle_base_deg <- angle_base_rad * 180 / pi
+
+list(
+  mu_base_true = mu_base_true,
+  mu_base_hat = mu_base_hat,
+  base_angle_degrees= angle_base_deg
+)
 ```
+
+```{r challenge mu-comparison}
+mu_challenge_true <- mu_challenge
+
+# Angle between vectors
+angle_challenge_rad <- acos(sum(mu_challenge_true * mu_challenge_hat))
+angle_challenge_deg <- angle_challenge_rad * 180 / pi
+
+list(
+  mu_challenge_true = mu_challenge_true,
+  mu_challenge_hat = mu_challenge_hat,
+  challenge_angle_degrees= angle_challenge_deg
+)
+```
+As expected, the angle of error is greater with the challenge set.
+
+## Estimation of concentration
+
+movMF can attempt to estimate the concentration variable K, which is the foremost variable being studied and approximated. 
+
+```{r base k estimation}
+# Setting k to 1 fits a single vMF distribution. Therefore, the E step in the EM algorithm is skipped - every point will belong to the same component. Only the M step is used.
+fit1 <- movMF(X_base, k = 1)
+fit1
+
+kappa_base_hat <- norm(fit1$theta, "2")
+mu_base_hat_mle <- fit1$theta/kappa_base_hat
+
+list(
+  # Estimation of mean
+  mu_base_hat_mle = mu_base_hat_mle,
+  # Estimation of kappa
+  kappa_base_hat = kappa_base_hat
+)
+```
+
+
+```{r challenge k estimation}
+fit2 <- movMF(X_challenge, k = 1)
+fit2
+
+kappa_challenge_hat <- norm(fit2$theta, "2")
+mu_challenge_hat_mle <- fit2$theta/kappa_challenge_hat
+
+list(
+  # Estimation of mean
+  mu_challenge_hat_mle = mu_challenge_hat_mle,
+  # Estimation of kappa
+  kappa_challenge_hat = kappa_challenge_hat
+)
+```
+
+As we can see here, estimating the concentration is a much more difficult task than estimating the mean. Although movMF gets a great estimation with the base set, the challenge set is quite a bit off: 1.2 is estimated, against an actual concentration of 5. The question remains of what exactly throws off the algorithm so much - is it sample size, or the concentration itself?
+
+# Experiment 1 - Sample Size
+
+```{r Experiment 1 - Sample Size}
+sample_sizes <- seq(from = 50, to = 1000, by = 10)
+
+results_base <- data.frame(
+  n = sample_sizes,
+  kappa_hat = NA_real_,
+  angle_deg = NA_real_
+)
+
+for (i in 1:length(sample_sizes)) {
+  n_i <- sample_sizes[i]
+  theta_true <- 50 * mu_base
+  Xn <- rmovMF(n_i, theta_true)
+
+  # estimate mu and angle error
+  mu_hat_raw <- colMeans(Xn)
+  mu_hat_n <- mu_hat_raw / sqrt(sum(mu_hat_raw^2))
+  angle_n <- acos(sum(mu_base * mu_hat_n)) * 180 / pi
+
+  # estimate kappa via MLE
+  fit_n <- movMF(Xn, k = 1)
+
+  results_base$kappa_hat[i] <- norm(fit_n$theta,"2")
+  results_base$angle_deg[i] <- angle_n
+}
+
+results_base
+```
+
+```{r sample size plot - concentration itself}
+ggplot(results_base, aes(x = n, y = kappa_hat)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Estimated kappa vs Sample Size",
+       x = "Sample size (n)",
+       y = "Estimated kappa")
+```
+
+```{r sample size plot - angle of error}
+ggplot(results_base, aes(x = n, y = angle_deg)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Angle of Error vs Sample Size",
+       x = "Sample size (n)",
+       y = "Angle of Error")
+```
+
+# Experiment 2 - Concentration
+
+## Sample size of 25
+```{r Experiment 2.1 - Concentration with smaller sample size}
+kappas <- seq(from = 10, to = 200, by = 10)
+
+results_kappa <- data.frame(
+  n = NA_real_,
+  kappa = kappas,
+  angle_deg = NA_real_
+)
+
+for (i in 1:length(kappas)){
+  n <- 25
+  theta_true <- kappas[i] * mu_base
+  Xn <- rmovMF(n, theta_true)
+  
+  # estimate mu and angle error
+  mu_hat_raw <- colMeans(Xn)
+  mu_hat_n <- mu_hat_raw / sqrt(sum(mu_hat_raw^2))
+  angle_n <- acos (sum(mu_base * mu_hat_n)) * 180 / pi
+  
+  # estimate kappa via MLE
+  fit_n <- movMF(Xn, k = 1)
+  results_kappa$kappa_hat[i] <- norm(fit_n$theta, "2")
+  results_kappa$angle_deg[i] <- angle_n
+}
+results_kappa
+```
+
+## Sample size of 100
+
+```{r Experiment 2.2 - Concentration w/ larger sample size}
+kappas <- seq(from = 10, to = 200, by = 10)
+
+results_kappa <- data.frame(
+  n = NA_real_,
+  kappa = kappas,
+  angle_deg = NA_real_
+)
+
+for (i in 1:length(kappas)){
+  n <- 100
+  theta_true <- kappas[i] * mu_base
+  Xn <- rmovMF(n, theta_true)
+  
+  # estimate mu and angle error
+  mu_hat_raw <- colMeans(Xn)
+  mu_hat_n <- mu_hat_raw / sqrt(sum(mu_hat_raw^2))
+  angle_n <- acos (sum(mu_base * mu_hat_n)) * 180 / pi
+  
+  # estimate kappa via MLE
+  fit_n <- movMF(Xn, k = 1)
+  results_kappa$kappa_hat[i] <- norm(fit_n$theta, "2")
+  results_kappa$angle_deg[i] <- angle_n
+}
+results_kappa
+```
+
+# Experiment 3 - Varied Sample Sizes and Concentration
+
+```{r Experiment 3 - Varied Sample Sizes and Concentration}
+sample_sizes <- seq(50, 1050, length.out = 20)
+kappas <- seq(10, 210, length.out = 10)
+
+param_grid <- expand.grid(
+  n = sample_sizes,
+  kappa = kappas
+)
+param_grid$angle_deg <- NA_real_
+
+for (i in seq_len(nrow(param_grid))) {
+  theta_true <- param_grid$kappa[i] * mu_base
+  Xn <- rmovMF(param_grid$n[i], theta_true)
+  
+  mu_hat_raw <- colMeans(Xn)
+  mu_hat <- mu_hat_raw / sqrt(sum(mu_hat_raw^2))
+  
+  param_grid$angle_deg[i] <- 
+    acos(sum(mu_base * mu_hat)) * 180 / pi
+}
+param_grid
+```
+
+```{r Experiment 3 Heatmap}
+ggplot(param_grid, aes(x = n, y = kappa, fill = angle_deg)) + geom_tile() + scale_fill_distiller(palette = "Spectral")
+```
+
+# Interpretation and Writing
 
 ```{Interpretation and Writing}
 
