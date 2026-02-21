@@ -449,7 +449,7 @@ for (i in seq_len(nrow(param_grid))) {
 ggplot(param_grid, aes(x = n, y = kappa, fill = angle_deg)) + geom_tile() + scale_fill_distiller(palette = "Spectral")
 ```
 
-As one expects, increasing sample size and concentration increase the accuracy of movRF. However, there isn't that clear of a pattern here as to which parameter is more crucial to accuracy. A slight pattern seems to exist where smaller sample size (0 - 300) data sets are more likely to have higher degree of errors compared to small kappa (0 - 50) data sets - however, more analysis is likely needed to establish a well defined pattern.
+As one expects, increasing sample size and concentration increase the accuracy of movRF. However, there isn't that clear of a pattern here as to which parameter is more crucial to accuracy. A slight pattern seems to exist where smaller sample size (0 - 300) data sets are more likely to have higher degree of errors compared to small kappa (0 - 50) data sets - however, more analysis is needed to establish a well defined pattern.
 
 # Interpretation and Writing
 
