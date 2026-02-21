@@ -276,6 +276,8 @@ As we can see here, estimating the concentration is a much more difficult task t
 
 # Experiment 1 - Sample Size
 
+In this study, we examine the effect of sample size on movRF's ability to predict concentration. Every sample size from 50 to 1000 in increments of 10 is studied, and a plot is made to see how accuracy increases with increasing sample size.
+
 ```{r Experiment 1 - Sample Size}
 sample_sizes <- seq(from = 50, to = 1000, by = 10)
 
@@ -287,7 +289,7 @@ results_base <- data.frame(
 
 for (i in 1:length(sample_sizes)) {
   n_i <- sample_sizes[i]
-  theta_true <- 50 * mu_base
+  theta_true <- 50 * mu_base # Note that, in the movRF package, we merge mu and kappa together; so mu_base * 50 becomes [0, 0, 50] here.
   Xn <- rmovMF(n_i, theta_true)
 
   # estimate mu and angle error
@@ -301,9 +303,9 @@ for (i in 1:length(sample_sizes)) {
   results_base$kappa_hat[i] <- norm(fit_n$theta,"2")
   results_base$angle_deg[i] <- angle_n
 }
-
-results_base
 ```
+
+Now we plot the results, focusing on the concentration itself. The red line is the line of best estimate, and we can see a clear shift towards 50 over time.
 
 ```{r sample size plot - concentration itself}
 ggplot(results_base, aes(x = n, y = kappa_hat)) +
@@ -315,6 +317,8 @@ ggplot(results_base, aes(x = n, y = kappa_hat)) +
        x = "Sample size (n)",
        y = "Estimated kappa")
 ```
+
+Perhaps even more useful is plotting angle of error against sample size. Here, the angle of error is clearly decreasing to an almost negligible amount over time.
 
 ```{r sample size plot - angle of error}
 ggplot(results_base, aes(x = n, y = angle_deg)) +
@@ -329,11 +333,13 @@ ggplot(results_base, aes(x = n, y = angle_deg)) +
 
 # Experiment 2 - Concentration
 
+We repeat the last experiment, but keep sample size fixed on two values: 25 and 100. The role of the concentration itself in movRF attempt to estimate the concentration is studied.
+
 ## Sample size of 25
 ```{r Experiment 2.1 - Concentration with smaller sample size}
-kappas <- seq(from = 10, to = 200, by = 10)
+kappas <- seq(from = 10, to = 300, by = 5)
 
-results_kappa <- data.frame(
+results_kappa_25 <- data.frame(
   n = NA_real_,
   kappa = kappas,
   angle_deg = NA_real_
@@ -351,18 +357,32 @@ for (i in 1:length(kappas)){
   
   # estimate kappa via MLE
   fit_n <- movMF(Xn, k = 1)
-  results_kappa$kappa_hat[i] <- norm(fit_n$theta, "2")
-  results_kappa$angle_deg[i] <- angle_n
+  results_kappa_25$kappa_hat[i] <- norm(fit_n$theta, "2")
+  results_kappa_25$angle_deg[i] <- angle_n
 }
-results_kappa
 ```
+
+We now plot the estimate of concentration. This time, we just focus on the decrease of angle of error over time.
+
+```{r concentration plot: sample size of 25}
+ggplot(results_kappa_25, aes(x = kappa, y = angle_deg)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Angle of error with estimated kappa vs actual kappa",
+       x = "Actual kappa",
+       y = "Angle of error")
+```
+
+As we can see, there is immense variation - however, even with this small sample size, the angle of error seems to inevitably decrease.
 
 ## Sample size of 100
 
 ```{r Experiment 2.2 - Concentration w/ larger sample size}
-kappas <- seq(from = 10, to = 200, by = 10)
+kappas <- seq(from = 10, to = 300, by = 5)
 
-results_kappa <- data.frame(
+results_kappa_100 <- data.frame(
   n = NA_real_,
   kappa = kappas,
   angle_deg = NA_real_
@@ -380,18 +400,33 @@ for (i in 1:length(kappas)){
   
   # estimate kappa via MLE
   fit_n <- movMF(Xn, k = 1)
-  results_kappa$kappa_hat[i] <- norm(fit_n$theta, "2")
-  results_kappa$angle_deg[i] <- angle_n
+  results_kappa_100$kappa_hat[i] <- norm(fit_n$theta, "2")
+  results_kappa_100$angle_deg[i] <- angle_n
 }
-results_kappa
 ```
 
+```{r concentration plot: sample size of 100}
+ggplot(results_kappa_100, aes(x = kappa, y = angle_deg)) +
+  geom_point() +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  theme_minimal() +
+  labs(title = "Angle of error with estimated kappa vs actual kappa",
+       x = "Actual kappa",
+       y = "Angle of error")
+```
+
+With a larger sample size, the graph seems to be less "jagged", and most angles of error do not exceed 1.
+
 # Experiment 3 - Varied Sample Sizes and Concentration
+
+Finally, we conduct an experiment varying both the sample size and concentration parameters, and see what a heat map can reveal. Kappa values are varied from 10 to 210 in increments of 10, and sample sizes are varied from 50 to 1050 in increments of 20.
 
 ```{r Experiment 3 - Varied Sample Sizes and Concentration}
 sample_sizes <- seq(50, 1050, length.out = 20)
 kappas <- seq(10, 210, length.out = 10)
 
+# Declaring a grid that will hold all angles of error.
 param_grid <- expand.grid(
   n = sample_sizes,
   kappa = kappas
@@ -408,15 +443,16 @@ for (i in seq_len(nrow(param_grid))) {
   param_grid$angle_deg[i] <- 
     acos(sum(mu_base * mu_hat)) * 180 / pi
 }
-param_grid
 ```
 
 ```{r Experiment 3 Heatmap}
 ggplot(param_grid, aes(x = n, y = kappa, fill = angle_deg)) + geom_tile() + scale_fill_distiller(palette = "Spectral")
 ```
 
+As one expects, increasing sample size and concentration increase the accuracy of movRF. However, there isn't that clear of a pattern here as to which parameter is more crucial to accuracy. A slight pattern seems to exist where smaller sample size (0 - 300) data sets are more likely to have higher degree of errors compared to small kappa (0 - 50) data sets - however, more analysis is likely needed to establish a well defined pattern.
+
 # Interpretation and Writing
 
 ```{Interpretation and Writing}
-
+For the most part, movRF seems to do a great job at estimating vMF distributions. Angles of error rarely exceed 5 and are often below 1, and even challenging datasets do not throw it off extremely hard. However, mixed data sets were not reviewed here, and more analysis on this is needed. In addition, small outliers seem to exist, and running the same experiments over a mixture of data sets, particularly with the same parameters, could give more accurate data. 
 ```
