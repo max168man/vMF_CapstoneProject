@@ -1,0 +1,140 @@
+---
+title: "R Notebook"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+In this file, a large scale comparison between Euclidian and sphericial analysis models will be conducted. 
+
+- **Phase 5a: Mixture Modeling** The efficacy of Euclidian and spherical analysis models in   terms of fitting clusters will be conducted. 
+
+- **Phase 5b: Comparative Study, mixed parameters** The efficacy of Euclidian and spherical analysis models will be compared against varied parameters; namely number of mixtures, sample size, and concentration. This section aims to give a final and in-depth look at when which model should be used.
+Scenarios included are:
+- Same weight: Each mixture uniformly has the same weight
+- Varying weight: Mixtures have varying concentrations.
+- Concentrations: Varying concentrations with each mixture
+- Sample size: Varying sample sizes
+- Randomized: Random parameters for each of the above, and analysis provided.
+For each of these scenarios, a win rate heatmap is used to analyze. 2D graphs rarely have the minute detail required to tell which model is actually winning out.
+
+```{r packages}
+install.packages("rlang")
+pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl")
+
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install) > 0) install.packages(to_install)
+
+invisible(lapply(pkgs, require, character.only = TRUE))
+
+has_rgl <- requireNamespace("rgl", quietly = TRUE)
+if (has_rgl) library(rgl)
+```
+
+```{r seed}
+set.seed(123)
+```
+
+# Useful helper functions
+
+```{r helpers}
+# Normalize rows of a matrix to unit length
+normalize_rows <- function(X) {
+  X <- as.matrix(X)
+  norms <- sqrt(rowSums(X^2))
+  return(X/norms)
+}
+
+# Check unit length (returns summary)
+check_unit_length <- function(X) {
+  r <- sqrt(rowSums(as.matrix(X)^2))
+  return(summary(r))
+}
+
+# Angular distance between two unit vectors (in radians and degrees)
+angle_between <- function(u, v) {
+  u <- as.numeric(u) / sqrt(sum(u^2))
+  v <- as.numeric(v) / sqrt(sum(v^2))
+  val <- acos(max(min(sum(u*v), 1), -1))
+  return(c(radians = val, degrees = val * 180 / pi))
+}
+
+# Fast 2D projections for 3D spherical data
+plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
+  X <- as.data.frame(X)
+  colnames(X) <- paste0("x", 1:ncol(X))
+  if (!is.null(label)) X$cluster <- factor(label)
+
+  p1 <- ggplot(X, aes(x = x1, y = x2, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x2")) +
+    theme_bw()
+
+  p2 <- ggplot(X, aes(x = x1, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x3")) +
+    theme_bw()
+
+  p3 <- ggplot(X, aes(x = x2, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x2 vs x3")) +
+    theme_bw()
+
+  return(list(p12 = p1, p13 = p2, p23 = p3))
+}
+```
+
+------------------------------------------------------------------------
+
+# Phase 5a: Varied Mixtures
+
+We create a set of mixtures we can test against. These will also be phased in phase 5b.
+
+```{r simulated mixture #1}
+d <- 3 # Number of dimensions
+K_true <- 3 # Number of mixtures
+# n is set to varying values
+
+# Uniform mixture weights (for varying weights, custom values are set)
+w <- c(0.33, 0.33, 0.34)
+
+# Component mean directions
+mu_list <- list(
+  c(1, 0, 0),
+  c(0, 1, 0),
+  c(0, 0, 1),
+)
+
+# Component concentrations (kappas) can be made to varying difficulties
+k_list_m1_d1 <- c(100, 110, 80)
+k_list_m1_d1 <- c(50, 60, 40)
+k_list_m1_d1 <- c(100, 110, 80)
+
+
+```
+
+```{r simulated mixture #2}
+```
+
+```{r simulated mixture #3}
+```
+
+```{r simulated mixture #4}
+```
+
+```{r simulated mixture #5}
+```
+
+

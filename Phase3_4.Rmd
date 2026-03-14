@@ -1,0 +1,455 @@
+---
+title: "R Notebook"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+In this file, we will go through stage 3 and 4 of the vMF clustering
+project.
+
+-   **Phase 3: Mixture Modeling and Clustering** Mixtures of vMF
+    distributions will be fit, rather than a single distribution like in
+    stage 2. The number of clusters will be selected via BIC,
+    visualization on the unit sphere will be conducted, and comparisons
+    with Euclidian K-means will be done.
+-   **Phase 4: Comparative Study** Simulations of Euclidian, traditional
+    analysis models vs spherical models will be conducted.
+
+# Installing required packages
+
+```{r packages}
+pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl")
+
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install) > 0) install.packages(to_install)
+
+invisible(lapply(pkgs, require, character.only = TRUE))
+
+has_rgl <- requireNamespace("rgl", quietly = TRUE)
+if (has_rgl) library(rgl)
+```
+
+```{r seed}
+set.seed(123)
+```
+
+# Helper functions for phase 3 and 4
+
+```{r helpers}
+# Normalize rows of a matrix to unit length
+normalize_rows <- function(X) {
+  X <- as.matrix(X)
+  norms <- sqrt(rowSums(X^2))
+  return(X/norms)
+}
+
+# Check unit length (returns summary)
+check_unit_length <- function(X) {
+  r <- sqrt(rowSums(as.matrix(X)^2))
+  return(summary(r))
+}
+
+# Angular distance between two unit vectors (in radians and degrees)
+angle_between <- function(u, v) {
+  u <- as.numeric(u) / sqrt(sum(u^2))
+  v <- as.numeric(v) / sqrt(sum(v^2))
+  val <- acos(max(min(sum(u*v), 1), -1))
+  return(c(radians = val, degrees = val * 180 / pi))
+}
+
+# Fast 2D projections for 3D spherical data
+plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
+  X <- as.data.frame(X)
+  colnames(X) <- paste0("x", 1:ncol(X))
+  if (!is.null(label)) X$cluster <- factor(label)
+
+  p1 <- ggplot(X, aes(x = x1, y = x2, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x2")) +
+    theme_bw()
+
+  p2 <- ggplot(X, aes(x = x1, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x3")) +
+    theme_bw()
+
+  p3 <- ggplot(X, aes(x = x2, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x2 vs x3")) +
+    theme_bw()
+
+  return(list(p12 = p1, p13 = p2, p23 = p3))
+}
+```
+
+------------------------------------------------------------------------
+
+# Phase 3: Mixture Models and Clustering
+
+We will create a simulated mixture of vMF distributions:
+
+```{r simulated mixture}
+d <- 3 # Number of dimensions
+K_true <- 5
+n <- 500
+
+# Mixture weights
+w <- c(0.30, 0.25, 0.20, 0.15, 0.10)
+
+# Component mean directions
+mu_list <- list(
+  c(1, 0, 0),
+  c(0, 1, 0),
+  c(0, 0, 1),
+  c(1, 1, 0),
+  c(1, 0, 1)
+)
+mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2)))
+
+# Component concentrations (kappas)
+# A larger value means tighter clustering
+k_list <- c(25, 40, 30, 15, 20)
+
+# Sample component labels
+z <- sample(1:K_true, size = n, replace = TRUE, prob = w)
+
+# Generate data (rmovMF parameter: theta = mu*kappa)
+X <- matrix(NA, nrow = n, ncol = d)
+for (k in 1:K_true) {
+  nk <- sum(z == k)
+  if (nk > 0) {
+    X[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list[k]) 
+  }
+}
+
+# Sanity checks
+check_unit_length(X)
+table(z)
+```
+
+# Visualizing the mixture
+
+```{r phase3 projections}
+plots <- plot_projections(X, label = z, title_prefix = "True mixture (simulated)")
+plots$p12
+plots$p13
+plots$p23
+```
+
+```{r phase3-3d, eval=TRUE}
+# Interactive 3D plot
+rgl::open3d()
+cols <- as.integer(factor(z))
+rgl::plot3d(X, col = cols, size = 5, type = "s")
+rgl::title3d("Simulated mixture on the unit sphere")
+rgl::rglwidget()
+```
+
+# Attempting to fix mixtures of vMF for multiple K, and select K
+
+We will fit vMF mixtures, and compute BIC (grid over K). BIC is used for
+model selection, and helps us determine how well a model explains the
+data. This will be perfect for determining whether to use vMF or
+Euclidian models.
+
+```{r fit-grid}
+K_grid <- 1:8
+fits <- vector("list", length(K_grid))
+names(fits) <- paste0("K", K_grid)
+
+# Data must be in a matrix. 
+
+X_unit <- normalize_rows(X)
+
+for (K in K_grid) {
+  fits[[paste0("K", K)]] <- movMF::movMF(X_unit, k = K, nruns = 10)
+}
+
+# Extract, store BIC values
+bic_df <- data.frame(
+  K = K_grid,
+  BIC = sapply(fits, BIC)
+)
+
+bic_df
+```
+
+```{r bic-plot}
+ggplot(bic_df, aes(x = K, y = BIC)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  labs(title = "Model selection for vMF mixtures", subtitle = "Choose K with the smallest BIC", x = "Number of components (K)", y = "BIC")
+```
+
+```{r choose-K}
+K_hat <- bic_df$K[which.min(bic_df$BIC)]
+K_hat
+best_fit <- fits[[paste0("K", K_hat)]]
+```
+
+(i) BIC is determining what amount of models the data most likely has,
+    with a lower BIC being better. In this case, BIC shows that 5 is the
+    best fit.
+
+(ii) This chosen K makes sense, as we did indeed select 5 mixtures to
+     work with earlier. However, the BIC was nearly flat, which indicate
+     that movRF was starting to having some trouble.
+
+# Cluster Assignments, Visualization (vMF mixture)
+
+```{r vmf-clusters}
+vmf_cluster <- predict(best_fit)
+vmf_cluster <- factor(vmf_cluster)
+table(vmf_cluster)
+```
+
+```{r vmf-projections}
+plots_vmf <- plot_projections(X_unit, label = vmf_cluster, title_prefix = paste0("vMF mixture clustering (K = ", K_hat, ")"))
+plots_vmf$p12
+plots_vmf$p13
+plots_vmf$p23
+```
+
+```{r vmf-centers}
+theta_hat <- best_fit$theta
+
+kappa_hat <- apply(theta_hat, 2, function(x) norm(x,"2"))
+kappa_hat
+
+mu_hat <- apply(theta_hat, 2, function(x) x/norm(x,"2"))
+mu_hat
+```
+
+movMF calculated five clusters here, all somewhat reminiscent of the
+actual clusters we created in the simulation.
+
+Simulated vMF cluster means: 1: Weight: 0.30, mean: (1, 0, 0), K: 25 2:
+Weight: 0.25, mean: (0, 1, 0), K: 40 3: Weight: 0.20, mean: (0, 0, 1),
+K: 30 4: Weight: 0.15, mean: (1, 1, 0), K: 15 5: Weight: 0.10, mean: (1,
+0, 1), K: 20
+
+Estimated vMF clusters means:
+
+1: mean: (0.454, -0.005, 0.388) -\> Sim 5 2: mean: (0.000, 0.971, 0.005)
+-\> Sim 2 3: mean: (0.336, 0.239, -0.0133) -\> Sim 4 4: mean: (0.023,
+-0.010, 0.922) -\> Sim 3 5: mean: (0.824, 0.004, 0.004) -\> Sim 1
+
+It is fairly obvious still which simulated cluster each estimated
+cluster is mapping to. However, movMF is beginning to struggle a bit
+with simulated mixtures 5 and 4, who have two directions they tend
+towards.
+
+------------------------------------------------------------------------
+
+# Comparisons with Euclidean k-means
+
+We will now test Euclidian k-means on the same data.
+
+```{r kmeans-euclid}
+set.seed(123)
+km <- kmeans(X_unit, centers = K_hat, nstart = 25)
+km_cluster <- factor(km$cluster)
+
+table(km_cluster)
+```
+
+```{r km-projections}
+plots_km <- plot_projections(X_unit, label = km_cluster, title_prefix = paste0("Euclidean k-means (K = ", K_hat, ")"))
+plots_km$p12
+plots_km$p13
+plots_km$p23
+```
+
+### Agreement Metric
+
+```{r agreement}
+# Simple agreement table (labels might be permuted, so interpret carefully)
+table(vmf_cluster, km_cluster)
+```
+
+An interpretation of this is what cluster corresponds to each cluster
+from km to vmf. For example, km cluster 2 and vmf cluster 1 mostly
+correspond to each other.
+
+They appear to split the data slightly differently, but are mostly in
+agreement. vMF 4 and km 3 are in total agreement, but there is some
+variance with vMF 5.
+
+# Comparative Study
+
+In this study, we determine when spherical modeling outperforms
+Euclidian clustering, and vice versa. To do this, a simulation grid with
+varying sample sizes, concentration, and separation among cluster
+centers is created. vMF and k-means models are ran against the
+simulation grid.
+
+```{r sim-grid}
+library(dplyr)
+simulate_mixture <- function(n, K, kappas, mus, w = rep(1/K, K)) {
+  z <- sample(1:K, size = n, replace = TRUE, prob = w)
+  X <- matrix(NA, nrow = n, ncol = length(mus[[1]]))
+  for (k in 1:K) {
+    nk <- sum(z == k)
+    if (nk > 0) X[z == k, ] <- movMF::rmovMF(nk, theta = mus[[k]]*kappas[k])
+  }
+  list(X = normalize_rows(X), z = z)
+}
+
+within_cosine <- function(X, cluster) {
+  cluster <- as.integer(factor(cluster))
+  K <- max(cluster)
+  out <- numeric(K)
+  for (k in 1:K) {
+    idx <- which(cluster == k)
+    if (length(idx) <= 1) { out[k] <- NA; next }
+    mu_hat <- colMeans(X[idx, , drop = FALSE])
+    mu_hat <- mu_hat / sqrt(sum(mu_hat^2))
+    out[k] <- mean(X[idx, , drop = FALSE] %*% mu_hat)
+  }
+  mean(out, na.rm = TRUE)
+}
+
+grid <- expand.grid(
+  n = c(100, 300, 600),
+  kappa = c(5, 10, 20, 30),
+  rep = 1:50
+)
+
+grid <- as_tibble(grid)
+grid
+```
+
+```{r sim-run}
+K <- 5
+mus <- list(
+  c(1, 0, 0),
+  c(0, 1, 0),
+  c(0, 0, 1),
+  c(1, 1, 0),
+  c(0, 1, 1)
+)
+mus <- lapply(mus, function(m) m / sqrt(sum(m^2)))
+
+results <- grid %>%
+  rowwise() %>%
+  mutate(
+    sim = list(simulate_mixture(n = n, K = K, kappas = rep(kappa, K), mus = mus)),
+    # vMF mixture clustering
+    vmf_fit = list(tryCatch(
+      movMF::movMF(sim$X, k = K, nruns = 10),
+      error = function(e) NULL
+    )),
+
+    vmf_cluster = list(
+      if (is.null(vmf_fit)) NA else predict(vmf_fit)
+    ),
+
+    vmf_score = if (all(is.na(vmf_cluster))) NA else within_cosine(sim$X, vmf_cluster),
+
+    # Euclidean kmeans clustering
+    km = list(kmeans(sim$X, centers = K, nstart = 20)),
+    km_score = within_cosine(sim$X, km$cluster)
+  ) %>%
+  ungroup() %>%
+  select(n, kappa, rep, vmf_score, km_score)
+
+head(results)
+```
+
+```{r sim-summary}
+summary_df <- results %>%
+  group_by(n, kappa) %>%
+  summarise(
+    vmf_mean = mean(vmf_score, na.rm = TRUE),
+    km_mean  = mean(km_score, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  tidyr::pivot_longer(cols = c(vmf_mean, km_mean),
+                      names_to = "method", values_to = "score") %>%
+  mutate(method = dplyr::recode(method, vmf_mean = "vMF mixture", km_mean = "Euclidean k-means"))
+
+summary_df
+```
+
+```{r sim-plot}
+ggplot(summary_df, aes(x = kappa, y = score, group = method, linetype = method, color = method)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ n, scales = "free_y") +
+  theme_bw() +
+  labs(
+    title = "Comparative study: spherical vs Euclidean clustering",
+    subtitle = "Score = average within-cluster cosine similarity (higher is better)",
+    x = "Concentration (kappa)",
+    y = "Clustering score",
+    color = "Method",
+    linetype = "Method"
+  )
+```
+
+Performance is nearly identical, it is very hard to tell the difference
+between Euclidian vs vMF analysis. A deeper look at the accuracy has to
+be taken, and across multiple mixture sizes. For now, however, let's just try to see the difference between the two lines.
+
+```{r difference dataframe}
+library(tidyr)
+
+diff_df <- summary_df %>%
+  pivot_wider(names_from = method, values_from = score) %>%
+  mutate(
+    diff = `vMF mixture` - `Euclidean k-means`,
+    winner = ifelse(diff > 0, "vMF better", "k-means better")
+  )
+```
+
+```{r plot ribbon}
+ggplot(diff_df, aes(x = kappa)) +
+
+  geom_ribbon(
+    aes(
+      ymin = ifelse(winner == "vMF better", `Euclidean k-means`, `vMF mixture`),
+      ymax = ifelse(winner == "vMF better", `vMF mixture`, `Euclidean k-means`),
+      fill = winner
+    ),
+    alpha = 0.6
+  ) +
+
+  geom_line(aes(y = `vMF mixture`, color = "vMF mixture"), linewidth = 0) +
+  geom_line(aes(y = `Euclidean k-means`, color = "Euclidean k-means"), linewidth = 0) +
+
+  geom_point(aes(y = `vMF mixture`, color = "vMF mixture"), size = 0.8) +
+  geom_point(aes(y = `Euclidean k-means`, color = "Euclidean k-means"), size = 0.8) +
+
+  facet_wrap(~ n, scales = "free_y") +
+  theme_bw() +
+
+  scale_fill_manual(values = c(
+    "vMF better" = "violet",
+    "k-means better" = "red"
+  )) +
+
+  labs(
+    title = "Comparative study: spherical vs Euclidean clustering",
+    subtitle = "Shaded area shows which method performs better",
+    x = "Concentration (kappa)",
+    y = "Clustering score",
+    fill = "Winner",
+    color = "Method"
+  )
+```
+As we can see here, vMF seems to win across the board, with an exception with n=600 and a very low k value. A much deeper analysis needs to be done, so we will proceed with a win heatmap for various mixture sizes, k values, and sample sizes. This deep analysis will provide us with helpful usecases for when we need to use Euclidean vs movRF analysis.
+
