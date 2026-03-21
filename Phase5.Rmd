@@ -102,26 +102,61 @@ plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
 
 We create a set of mixtures we can test against. These will also be phased in phase 5b.
 
-```{r simulated mixture #1}
+```{r simulated mixture #1: 3 mixtures}
 d <- 3 # Number of dimensions
 K_true <- 3 # Number of mixtures
+n
 # n is set to varying values
 
-# Uniform mixture weights (for varying weights, custom values are set)
-w <- c(0.33, 0.33, 0.34)
+# Mixture weights
+w <- c(0.50, 0.30, 0.20)
 
 # Component mean directions
 mu_list <- list(
   c(1, 0, 0),
   c(0, 1, 0),
-  c(0, 0, 1),
+  c(0, 0, 1)
 )
+mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2)))
 
 # Component concentrations (kappas) can be made to varying difficulties
-k_list_m1_d1 <- c(100, 110, 80)
-k_list_m1_d1 <- c(50, 60, 40)
-k_list_m1_d1 <- c(100, 110, 80)
+k_list_m3_h <- c(60, 70, 80) # Higher concentration
+k_list_m3_m <- c(40, 50, 60) # Medium concentration
+k_list_m3_l <- c(20, 30, 40) # Lower concentration
 
+# Sample component labels
+z <- sample(1:K_true, size = n, replace = TRUE, prob = w)
+
+# Generate data (rmovMF parameter: theta = mu*kappa)
+X1 <- matrix(NA, nrow = n, ncol = d)
+for (k in 1:K_true) {
+  nk <- sum(z == k)
+  if (nk > 0) {
+    X1[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_h[k]) 
+  }
+}
+
+X2 <- matrix(NA, nrow = n, ncol = d)
+for (k in 1:K_true) {
+  nk <- sum(z == k)
+  if (nk > 0) {
+    X2[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_m[k]) 
+  }
+}
+
+X3 <- matrix(NA, nrow = n, ncol = d)
+for (k in 1:K_true) {
+  nk <- sum(z == k)
+  if (nk > 0) {
+    X3[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_l[k]) 
+  }
+}
+
+# Sanity checks
+check_unit_length(X1)
+check_unit_length(X2)
+check_unit_length(X3)
+table(z)
 
 ```
 
