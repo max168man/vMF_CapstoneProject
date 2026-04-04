@@ -1,0 +1,68 @@
+---
+title: "R Notebook"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+In this analysis, a large scale comparison between the effectiveness of Euclidian and Spherical Analysis models is conducted. This is done via comparing against several variables:
+
+1. Total number of mixtures: The number of mixtures being fitted in each dataset. Datasets with 1, 2, 3, 5, and 7 mixtures are considered.
+2. Sample size: The total number of points in each dataset. Scaled from 100 to 1000 in increments of 100.
+3. Average concentration: The average concentration of mixtures.
+
+Three more variables represent the variance of mixtures, concentrations, and means:
+1. Variance of means: Means always being 90 degrees apart from each other wouldn't be too realistic. 
+2. Variance of concentrations: Concentrations should not all be the "average concentration"; although 
+
+```{r helper functions}
+
+### generate_mus
+# This function generates the vector means for mixtures in datasets.
+# A "perfect" dataset would have mixtures centered far away from each other; the means would look like (0, 0, 1), (1, 0, -1) etc. Obviously, this isn't realistic, and we have to consider that vector means might be close to each other, and that mixtures might nearly be overlapping.
+# This function aims to simulate the challenges of this parameter, and creates sets of means according to cosine similarity.
+# Cosine similiarity is simply the cosine of angles between two vectors
+generate_mus <- function(K, d = 3, separation = 1, max_iter = 1000) {
+  
+  # Upper bounds on cosine similarity (i.e., enforce minimum angle)
+  max_cos_allowed <- switch(
+    as.character(separation),
+    "1" = 0.4,   # well separated
+    "2" = 0.7,   # moderate
+    "3" = 0.9    # weak separation
+  )
+  
+  for (iter in 1:max_iter) {
+    M <- matrix(rnorm(K * d), K, d)
+    M <- M / sqrt(rowSums(M^2))
+    
+    cos_mat <- M %*% t(M)
+    cos_vals <- cos_mat[upper.tri(cos_mat)]
+    
+    # Enforce minimum separation via max cosine similarity
+    if (max(cos_vals) <= max_cos_allowed) {
+      return(split(M, row(M)))
+    }
+  }
+  
+  warning("Did not meet separation constraint; returning last sample.")
+  split(M, row(M))
+}
+generate_mus(3, 3, 1)
+
+generate_mus(3, 3, 2)
+
+generate_mus(3, 3, 3)
+```

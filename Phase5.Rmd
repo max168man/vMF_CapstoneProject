@@ -33,7 +33,12 @@ For each of these scenarios, a win rate heatmap is used to analyze. 2D graphs ra
 ```{r packages}
 install.packages("rlang")
 pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl")
+library(future.apply)
+library(progressr)
 
+plan(multisession, workers = 4)
+
+handlers("txtprogressbar")
 to_install <- setdiff(pkgs, rownames(installed.packages()))
 if (length(to_install) > 0) install.packages(to_install)
 
@@ -94,6 +99,69 @@ plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
 
   return(list(p12 = p1, p13 = p2, p23 = p3))
 }
+
+make_kappas <- function(K, kappa_mean, variation = 1) {
+  
+  # map variation level to log-scale spread
+  sigma <- switch(
+    as.character(variation),
+    "1" = 0.2,
+    "2" = 0.5,
+    "3" = 0.8,
+    "4" = 1.2,
+    stop("variation must be 1, 2, 3, or 4")
+  )
+  
+  # log-mean so that expected value ≈ kappa_mean
+  mu <- log(kappa_mean) - (sigma^2 / 2)
+  
+  # sample kappas
+  kappas <- rlnorm(K, meanlog = mu, sdlog = sigma)
+  
+  return(kappas)
+}
+
+make_weights <- function(K, variation = 1) {
+  
+  alpha <- switch(
+    as.character(variation),
+    "1" = 10,
+    "2" = 2,
+    "3" = 0.7,
+    "4" = 0.3,
+    stop("variation must be 1, 2, 3, or 4")
+  )
+  
+  # Dirichlet via Gamma
+  x <- rgamma(K, shape = alpha, rate = 1)
+  w <- x / sum(x)
+  
+  return(w)
+}
+
+generate_mus <- function(K, d = 3, separation = 1, max_iter = 500) {
+  
+  target <- switch(
+    as.character(separation),
+    "1" = c(0.2, 0.4),
+    "2" = c(0.5, 0.7),
+    "3" = c(0.75, 0.9)
+  )
+  
+  for (iter in 1:max_iter) {
+    M <- matrix(rnorm(K * d), K, d)
+    M <- M / sqrt(rowSums(M^2))
+    
+    cos_vals <- (M %*% t(M))[upper.tri(M %*% t(M))]
+    
+    if (mean(cos_vals) >= target[1] && mean(cos_vals) <= target[2]) {
+      return(split(M, row(M)))
+    }
+  }
+  
+  split(M, row(M))
+}
+
 ```
 
 ------------------------------------------------------------------------
@@ -102,68 +170,153 @@ plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
 
 We create a set of mixtures we can test against. These will also be phased in phase 5b.
 
-```{r simulated mixture #1: 3 mixtures}
-d <- 3 # Number of dimensions
-K_true <- 3 # Number of mixtures
-n
-# n is set to varying values
-
-# Mixture weights
-w <- c(0.50, 0.30, 0.20)
-
-# Component mean directions
-mu_list <- list(
-  c(1, 0, 0),
-  c(0, 1, 0),
-  c(0, 0, 1)
-)
-mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2)))
-
-# Component concentrations (kappas) can be made to varying difficulties
-k_list_m3_h <- c(60, 70, 80) # Higher concentration
-k_list_m3_m <- c(40, 50, 60) # Medium concentration
-k_list_m3_l <- c(20, 30, 40) # Lower concentration
-
-# Sample component labels
-z <- sample(1:K_true, size = n, replace = TRUE, prob = w)
-
-# Generate data (rmovMF parameter: theta = mu*kappa)
-X1 <- matrix(NA, nrow = n, ncol = d)
-for (k in 1:K_true) {
-  nk <- sum(z == k)
-  if (nk > 0) {
-    X1[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_h[k]) 
-  }
-}
-
-X2 <- matrix(NA, nrow = n, ncol = d)
-for (k in 1:K_true) {
-  nk <- sum(z == k)
-  if (nk > 0) {
-    X2[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_m[k]) 
-  }
-}
-
-X3 <- matrix(NA, nrow = n, ncol = d)
-for (k in 1:K_true) {
-  nk <- sum(z == k)
-  if (nk > 0) {
-    X3[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list_m3_l[k]) 
-  }
-}
-
-# Sanity checks
-check_unit_length(X1)
-check_unit_length(X2)
-check_unit_length(X3)
-table(z)
-
-```
 
 ```{r simulated mixture #2}
-```
+# Simulation
+simulate_mixture <- function(n, K, kappas, mus, w) {
+  z <- sample(1:K, size = n, replace = TRUE, prob = w)
+  X <- matrix(NA, nrow = n, ncol = length(mus[[1]]))
+  
+  for (k in 1:K) {
+    nk <- sum(z == k)
+    if (nk > 0) {
+      X[z == k, ] <- movMF::rmovMF(nk, theta = mus[[k]] * kappas[k])
+    }
+  }
+  
+  list(X = normalize_rows(X), z = z)
+}
 
-```{r simulated mixture #3}
+# Scoring
+within_cosine <- function(X, cluster) {
+  cluster <- as.integer(factor(cluster))
+  K <- max(cluster)
+  out <- numeric(K)
+  
+  for (k in 1:K) {
+    idx <- which(cluster == k)
+    if (length(idx) <= 1) next
+    
+    mu_hat <- colMeans(X[idx, , drop = FALSE])
+    mu_hat <- mu_hat / sqrt(sum(mu_hat^2))
+    out[k] <- mean(X[idx, , drop = FALSE] %*% mu_hat)
+  }
+  
+  mean(out, na.rm = TRUE)
+}
+
+# =========================
+# PARAMETER GRID
+# =========================
+grid <- expand.grid(
+  n = seq(100, 1000, by = 200),
+  kappa_mean = seq(10, 100, by = 20),
+  weight_var = 1:4,
+  kappa_var = 1:4,
+  mu_sep = 1:3,
+  rep = 1:50
+) %>%
+  as_tibble()
+
+K <- 5
+d <- 3
+
+# =========================
+# RUN SIMULATION
+# =========================
+with_progress({
+  p <- progressor(steps = nrow(grid))
+  
+  results <- future_lapply(seq_len(nrow(grid)), function(i) {
+    
+    p(sprintf("Sim %d", i))
+    row <- grid[i, ]
+    
+    w <- make_weights(K, row$weight_var)
+    kappas <- make_kappas(K, row$kappa_mean, row$kappa_var)
+    mus <- generate_mus(K, d, row$mu_sep)
+    
+    sim <- simulate_mixture(row$n, K, kappas, mus, w)
+    
+    vmf_fit <- tryCatch(
+      movMF::movMF(sim$X, k = K, nruns = 3),
+      error = function(e) NULL
+    )
+    
+    vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
+    
+    vmf_score <- if (all(is.na(vmf_cluster))) NA else
+      within_cosine(sim$X, vmf_cluster)
+    
+    km <- kmeans(sim$X, centers = K, nstart = 5)
+    km_score <- within_cosine(sim$X, km$cluster)
+    
+    data.frame(
+      n = row$n,
+      kappa_mean = row$kappa_mean,
+      weight_var = row$weight_var,
+      kappa_var = row$kappa_var,
+      mu_sep = row$mu_sep,
+      rep = row$rep,
+      vmf_score = vmf_score,
+      km_score = km_score
+    )
+    
+  }, future.seed = TRUE)
+  
+  results <- bind_rows(results)
+})
+
+# =========================
+# SUMMARY
+# =========================
+results <- results %>%
+  mutate(
+    diff = vmf_score - km_score,
+    vmf_win = vmf_score > km_score
+  )
+
+win_df <- results %>%
+  group_by(n, kappa_mean, weight_var, kappa_var, mu_sep) %>%
+  summarise(
+    win_rate = mean(vmf_win, na.rm = TRUE),
+    diff_mean = mean(diff, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# =========================
+# PLOT FOR EACH μ SEPARATION
+# =========================
+for (lvl in 1:3) {
+  
+  plot_df <- win_df %>%
+    filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    
+    scale_fill_gradient2(
+      low = "blue",
+      mid = "white",
+      high = "red",
+      midpoint = 0.5,
+      name = "vMF win rate"
+    ) +
+    
+    facet_grid(weight_var ~ kappa_var) +
+    
+    labs(
+      title = "vMF vs k-means Performance",
+      subtitle = paste("μ separation level =", lvl,
+                       "| Rows: weight variation | Columns: kappa variation"),
+      x = "Mean concentration (kappa)",
+      y = "Sample size (n)"
+    ) +
+    
+    theme_bw()
+  
+  print(p)
+}
 ```
 
 ```{r simulated mixture #4}

@@ -31,7 +31,12 @@ project.
 # Installing required packages
 
 ```{r packages}
-pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl")
+pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl", "future.apply", "progressr")
+install.packages(c("future.apply", "progressr"))
+
+library(future.apply)
+library(progressr)
+library(dplyr)
 
 to_install <- setdiff(pkgs, rownames(installed.packages()))
 if (length(to_install) > 0) install.packages(to_install)
@@ -107,7 +112,7 @@ K_true <- 5
 n <- 500
 
 # Mixture weights
-w <- c(0.30, 0.25, 0.20, 0.15, 0.10)
+w <- c(0.20, 0.20, 0.20, 0.20, 0.20)
 
 # Component mean directions
 mu_list <- list(
@@ -299,6 +304,8 @@ simulation grid.
 
 ```{r sim-grid}
 library(dplyr)
+handlers("txtprogressbar")  # simple, clean bar
+
 simulate_mixture <- function(n, K, kappas, mus, w = rep(1/K, K)) {
   z <- sample(1:K, size = n, replace = TRUE, prob = w)
   X <- matrix(NA, nrow = n, ncol = length(mus[[1]]))
@@ -324,9 +331,9 @@ within_cosine <- function(X, cluster) {
 }
 
 grid <- expand.grid(
-  n = c(100, 300, 600),
-  kappa = c(5, 10, 20, 30),
-  rep = 1:50
+  n = seq(100, 1000, by = 100),
+  kappa = c(5, 10, 20, 30, 40, 50, 60, 70, 80, 90),
+  rep = 1:10
 )
 
 grid <- as_tibble(grid)
@@ -334,40 +341,64 @@ grid
 ```
 
 ```{r sim-run}
-K <- 5
+plan(multisession, workers = 4)
+library(progress)
+pb <- progress_bar$new(
+  total = nrow(grid),
+  format = "  [:bar] :percent | ETA: :eta"
+)
+
+K <- 3
 mus <- list(
   c(1, 0, 0),
   c(0, 1, 0),
-  c(0, 0, 1),
-  c(1, 1, 0),
-  c(0, 1, 1)
+  c(0, 0, 1)
 )
 mus <- lapply(mus, function(m) m / sqrt(sum(m^2)))
 
-results <- grid %>%
-  rowwise() %>%
-  mutate(
-    sim = list(simulate_mixture(n = n, K = K, kappas = rep(kappa, K), mus = mus)),
-    # vMF mixture clustering
-    vmf_fit = list(tryCatch(
-      movMF::movMF(sim$X, k = K, nruns = 10),
-      error = function(e) NULL
-    )),
+with_progress({
+  p <- progressor(steps = nrow(grid))
 
-    vmf_cluster = list(
-      if (is.null(vmf_fit)) NA else predict(vmf_fit)
-    ),
+  results <- future_lapply(
+    seq_len(nrow(grid)),
+    function(i) {
+      p(sprintf("Sim %d", i))  # update progress bar
 
-    vmf_score = if (all(is.na(vmf_cluster))) NA else within_cosine(sim$X, vmf_cluster),
+      row <- grid[i, ]
 
-    # Euclidean kmeans clustering
-    km = list(kmeans(sim$X, centers = K, nstart = 20)),
-    km_score = within_cosine(sim$X, km$cluster)
-  ) %>%
-  ungroup() %>%
-  select(n, kappa, rep, vmf_score, km_score)
+      sim <- simulate_mixture(
+        n = row$n,
+        K = K,
+        kappas = rep(row$kappa, K),
+        mus = mus
+      )
 
-head(results)
+      vmf_fit <- tryCatch(
+        movMF::movMF(sim$X, k = K, nruns = 5),
+        error = function(e) NULL
+      )
+
+      vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
+
+      vmf_score <- if (all(is.na(vmf_cluster))) NA else
+        within_cosine(sim$X, vmf_cluster)
+
+      km <- kmeans(sim$X, centers = K, nstart = 10)
+      km_score <- within_cosine(sim$X, km$cluster)
+
+      data.frame(
+        n = row$n,
+        kappa = row$kappa,
+        rep = row$rep,
+        vmf_score = vmf_score,
+        km_score = km_score
+      )
+    },
+    future.seed = TRUE
+  )
+
+  results <- bind_rows(results)
+})
 ```
 
 ```{r sim-summary}
@@ -450,6 +481,34 @@ ggplot(diff_df, aes(x = kappa)) +
     fill = "Winner",
     color = "Method"
   )
+```
+```{r win rate map}
+win_df <- results %>%
+  mutate(
+    vmf_win = vmf_score > km_score
+  ) %>%
+  group_by(n, kappa) %>%
+  summarise(
+    win_rate = mean(vmf_win, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(win_df, aes(x = factor(kappa), y = factor(n), fill = win_rate)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "blue",
+    mid = "white",
+    high = "red",
+    midpoint = 0.5,
+    name = "vMF win rate"
+  ) +
+  labs(
+    title = "Win Rate: vMF vs Euclidean k-means",
+    subtitle = "Red = vMF dominates, Blue = k-means dominates",
+    x = "Concentration (kappa)",
+    y = "Sample size (n)"
+  ) +
+  theme_bw()
 ```
 As we can see here, vMF seems to win across the board, with an exception with n=600 and a very low k value. A much deeper analysis needs to be done, so we will proceed with a win heatmap for various mixture sizes, k values, and sample sizes. This deep analysis will provide us with helpful usecases for when we need to use Euclidean vs movRF analysis.
 
