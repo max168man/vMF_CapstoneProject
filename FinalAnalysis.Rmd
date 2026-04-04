@@ -19,13 +19,16 @@ knitr::opts_chunk$set(echo = TRUE)
 
 In this analysis, a large scale comparison between the effectiveness of Euclidian and Spherical Analysis models is conducted. This is done via comparing against several variables:
 
-1. Total number of mixtures: The number of mixtures being fitted in each dataset. Datasets with 1, 2, 3, 5, and 7 mixtures are considered.
-2. Sample size: The total number of points in each dataset. Scaled from 100 to 1000 in increments of 100.
+1. Total number of mixtures: The number of mixtures being fitted in each dataset. 
+2. Sample size: The total number of points in each dataset. 
 3. Average concentration: The average concentration of mixtures.
 
 Three more variables represent the variance of mixtures, concentrations, and means:
 1. Variance of means: Means always being 90 degrees apart from each other wouldn't be too realistic. 
-2. Variance of concentrations: Concentrations should not all be the "average concentration"; although 
+2. Variance of concentrations: Concentrations should not all be the "average concentration"; this controls how much the concentrations vary around the mean concentration
+3. Variance of sample sizes: Mixture sizes vary from all being the same size (portion of total sample size allocated to them), to highly varying in what portion of the total sample size is allocated to them.
+
+In order to analyze these how variables, 
 
 ```{r helper functions}
 
