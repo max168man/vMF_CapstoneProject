@@ -6,11 +6,15 @@ output:
     toc: true
     toc_depth: 2
     number_sections: true
+editor_options: 
+  markdown: 
+    wrap: sentence
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook.
+When you execute code within the notebook, the results appear beneath the code.
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*.
 
 # R Environment Setup
 
@@ -20,20 +24,33 @@ library(movMF)
 library(Directional)
 library(ggplot2)
 ```
+
 Setting a seed allows us to recreate the data generated here, rather than having different data every time the file is ran.
+
 ```{r seed}
 set.seed(144)
 ```
 
 # Simulation: Generating vMF Data in 3D
-In order to a handle on what simulated vMF data is like, we use two datasets here for some small initial tests. The first is a "basic" set of parameters that generate simple vMF data to work with, and the second is a "challenge" set of parameters that makes more difficult vMF data to work with.
 
-The parameters we are working with are as follows:<br>
-- mu: The mean direction unit vectors are pointing in. This cannot be made more difficult, and all mu values will be of equal complexity for movMF to work with.<br>
-- kappa: The measure of how strongly data is concentrated around the mean direction. A lower value means lower concentration, making it more difficult for movMF to estimate the mean direction. A value of 0 would even mean complete dispersion of unit vectors, with no adherence to the mean direction whatsoever. A higher concentration means increasing adherence to the mean direction.<br>
-- n: The number of unit vectors we are working with. Higher values of n means a greater sample size for movMF to work with, creating more ease of estimating the mean direction.
+In order to a handle on what simulated vMF data is like, we use two datasets here for some small initial tests.
+The first is a "basic" set of parameters that generate simple vMF data to work with, and the second is a "challenge" set of parameters that makes more difficult vMF data to work with.
+
+The parameters we are working with are as follows:
+
+**mu**: The mean direction unit vectors are pointing in.
+This cannot be made more difficult, and all mu values will be of equal complexity for movMF to work with.
+
+**kappa**: The measure of how strongly data is concentrated around the mean direction.
+A lower value means lower concentration, making it more difficult for movMF to estimate the mean direction.
+A value of 0 would even mean complete dispersion of unit vectors, with no adherence to the mean direction whatsoever.
+A higher concentration means increasing adherence to the mean direction.
+
+**n**: The number of unit vectors (points) we are working with.
+Higher values of n means a greater sample size for movMF to work with, creating more ease of estimating the mean direction.
 
 ## Creating Parameter set: Basic
+
 ```{r basic params}
 # A very "normal" set of parameters for a vMF analysis. 
 mu_base <- c(0, 0, 1) # mean direction
@@ -50,6 +67,7 @@ mu_base
 ```
 
 ## Creating Parameter set: Challenge
+
 ```{r challenging params}
 # A more challenging set of parameters for a vMF analysis, with less concentration and a smaller sample size
 mu_challenge <- c(0, 0, 1)
@@ -66,10 +84,13 @@ mu_challenge
 ```
 
 # Data Simulation
+
 ## Simulating base vMF distribution data
+
 This will simulate the hundred data points requested in the base vMF data.
 We only print the head of data created, so six points are visible.
 Printing the length of the data divided by three confirms 200 points were created, with three coordinates each.
+
 ```{r Data Simulation: Base}
 X_base <- rmovMF(n_base, mu_base, kappa_base)
 head(X_base)
@@ -77,7 +98,8 @@ print("length: " )
 print(length(X_base)/3)
 ```
 
-We need to always sanity check this because vectors must be unit length. If not, k estimations will not function.
+We need to always sanity check this because vectors must be unit length.
+If not, k estimations will not function.
 
 ```{r Sanity Check: X_base Unit Length}
 lens_base <- sqrt(rowSums(X_base^2))
@@ -95,7 +117,9 @@ head(X_challenge)
 lens_challenge <- sqrt(rowSums(X_challenge^2))
 summary(lens_challenge)
 ```
+
 # Visualization
+
 We can get a decent grasp on what this data actually looks like by visualizing it, both in 2d planes and a 3d sphere presentation.
 ## 2D Projection (x vs y)
 
@@ -118,7 +142,10 @@ ggplot(df, aes(x, y)) +
   theme_minimal() +
   labs(title = "Projection of challenge vMF data Samples (x vs y)", x = "x", y = "y")
 ```
-In both x vs. y charts, there seems to be no particular pattern to the data. This is to be expected, as the points only cluster towards z = 1, and are indifferent to x and y coordinates.
+
+In both x vs. y charts, there seems to be no particular pattern to the data.
+This is to be expected, as the points only cluster towards z = 1, and are indifferent to x and y coordinates.
+
 ```{r plot-xz: base}
 df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
 
@@ -138,7 +165,9 @@ ggplot(df, aes(x, z)) +
   theme_minimal() +
   labs(title = "Projection of challenge vMF data Samples (x vs z)", x = "x", z = "z")
 ```
+
 Now we can see a clear pattern of concentration towards z = 1, even in the less concentrated challenge data set.
+
 ```{r plot-yz: base}
 df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
 
@@ -158,10 +187,12 @@ ggplot(df, aes(y, z)) +
   theme_minimal() +
   labs(title = "Projection of challenge vMF data Samples (y vs z)", y = "y", z = "z")
 ```
+
 With Y vs Z data, a similar pattern holds.
 However, a 3D project will give us the most human-readable view of how the data is dispersed.
 
 ## 3D Projection (Interactive)
+
 ```{r base plot-3d}
 library(rgl)
 open3d()
@@ -176,16 +207,18 @@ plot3d(X_challenge, col = "blue", size = 5)
 rglwidget()
 ```
 
-One can see that the data points in both sets concentrate towards z = -1.However, the challenge set has much more dispersal and fewer points to deduce this estimate from - will movMF be able to see the pattern? In parameter estimation, we can contrast how effective it is between the two datasets.
+One can see that the data points in both sets concentrate towards z = -1.However, the challenge set has much more dispersal and fewer points to deduce this estimate from - will movMF be able to see the pattern?
+In parameter estimation, we can contrast how effective it is between the two datasets.
 
 # Parameter Estimation
 
 ## Estimation of mean
+
 First we estimate the sample mean, which must be normalized:
 
-\[
+$$
 \hat{\mu} = \frac{\bar{x}}{\|\bar{x}\|}
-\]
+$$
 
 ```{r Parameter Estimation: Base}
 # Estimating base mean
@@ -201,7 +234,8 @@ mu_challenge_hat <- mu_challenge_hat_raw / sqrt(sum(mu_challenge_hat_raw^2))
 mu_challenge_hat
 ```
 
-As we can see here, the challenge mean seems slightly more varied from the true mean of (0, 0, 1). The x coordinate is coincidentally less far off - but the y, and most importantly z, coordinates are a bit further off.
+As we can see here, the challenge mean seems slightly more varied from the true mean of (0, 0, 1).
+The x coordinate is coincidentally less far off - but the y, and most importantly z, coordinates are a bit further off.
 
 ## Measurement of errors via angles
 
@@ -234,11 +268,12 @@ list(
   challenge_angle_degrees= angle_challenge_deg
 )
 ```
+
 As expected, the angle of error is greater with the challenge set.
 
 ## Estimation of concentration
 
-movMF can attempt to estimate the concentration variable K, which is the foremost variable being studied and approximated. 
+movMF can attempt to estimate the concentration variable K, which is the foremost variable being studied and approximated.
 
 ```{r base k estimation}
 # Setting k to 1 fits a single vMF distribution. Therefore, the E step in the EM algorithm is skipped - every point will belong to the same component. Only the M step is used.
@@ -256,7 +291,6 @@ list(
 )
 ```
 
-
 ```{r challenge k estimation}
 fit2 <- movMF(X_challenge, k = 1)
 fit2
@@ -272,11 +306,14 @@ list(
 )
 ```
 
-As we can see here, estimating the concentration is a much more difficult task than estimating the mean. Although movMF gets a great estimation with the base set, the challenge set is quite a bit off: 1.2 is estimated, against an actual concentration of 5. The question remains of what exactly throws off the algorithm so much - is it sample size, or the concentration itself?
+As we can see here, estimating the concentration is a much more difficult task than estimating the mean.
+Although movMF gets a great estimation with the base set, the challenge set is quite a bit off: 1.2 is estimated, against an actual concentration of 5.
+The question remains of what exactly throws off the algorithm so much - is it sample size, or the concentration itself?
 
 # Experiment 1 - Sample Size
 
-In this study, we examine the effect of sample size on movRF's ability to predict concentration. Every sample size from 50 to 1000 in increments of 10 is studied, and a plot is made to see how accuracy increases with increasing sample size.
+In this study, we examine the effect of sample size on movRF's ability to predict concentration.
+Every sample size from 50 to 1000 in increments of 10 is studied, and a plot is made to see how accuracy increases with increasing sample size.
 
 ```{r Experiment 1 - Sample Size}
 sample_sizes <- seq(from = 50, to = 1000, by = 10)
@@ -305,7 +342,8 @@ for (i in 1:length(sample_sizes)) {
 }
 ```
 
-Now we plot the results, focusing on the concentration itself. The red line is the line of best estimate, and we can see a clear shift towards 50 over time.
+Now we plot the results, focusing on the concentration itself.
+The red line is the line of best estimate, and we can see a clear shift towards 50 over time.
 
 ```{r sample size plot - concentration itself}
 ggplot(results_base, aes(x = n, y = kappa_hat)) +
@@ -318,7 +356,8 @@ ggplot(results_base, aes(x = n, y = kappa_hat)) +
        y = "Estimated kappa")
 ```
 
-Perhaps even more useful is plotting angle of error against sample size. Here, the angle of error is clearly decreasing to an almost negligible amount over time.
+Perhaps even more useful is plotting angle of error against sample size.
+Here, the angle of error is clearly decreasing to an almost negligible amount over time.
 
 ```{r sample size plot - angle of error}
 ggplot(results_base, aes(x = n, y = angle_deg)) +
@@ -333,9 +372,11 @@ ggplot(results_base, aes(x = n, y = angle_deg)) +
 
 # Experiment 2 - Concentration
 
-We repeat the last experiment, but keep sample size fixed on two values: 25 and 100. The role of the concentration itself in movRF attempt to estimate the concentration is studied.
+We repeat the last experiment, but keep sample size fixed on two values: 25 and 100.
+The role of the concentration itself in movRF attempt to estimate the concentration is studied.
 
 ## Sample size of 25
+
 ```{r Experiment 2.1 - Concentration with smaller sample size}
 kappas <- seq(from = 10, to = 300, by = 5)
 
@@ -362,7 +403,8 @@ for (i in 1:length(kappas)){
 }
 ```
 
-We now plot the estimate of concentration. This time, we just focus on the decrease of angle of error over time.
+We now plot the estimate of concentration.
+This time, we just focus on the decrease of angle of error over time.
 
 ```{r concentration plot: sample size of 25}
 ggplot(results_kappa_25, aes(x = kappa, y = angle_deg)) +
@@ -420,7 +462,8 @@ With a larger sample size, the graph seems to be less "jagged", and most angles 
 
 # Experiment 3 - Varied Sample Sizes and Concentration
 
-Finally, we conduct an experiment varying both the sample size and concentration parameters, and see what a heat map can reveal. Kappa values are varied from 10 to 210 in increments of 10, and sample sizes are varied from 50 to 1050 in increments of 20.
+Finally, we conduct an experiment varying both the sample size and concentration parameters, and see what a heat map can reveal.
+Kappa values are varied from 10 to 210 in increments of 10, and sample sizes are varied from 50 to 1050 in increments of 20.
 
 ```{r Experiment 3 - Varied Sample Sizes and Concentration}
 sample_sizes <- seq(50, 1050, length.out = 20)
@@ -449,7 +492,9 @@ for (i in seq_len(nrow(param_grid))) {
 ggplot(param_grid, aes(x = n, y = kappa, fill = angle_deg)) + geom_tile() + scale_fill_distiller(palette = "Spectral")
 ```
 
-As one expects, increasing sample size and concentration increase the accuracy of movRF. However, there isn't that clear of a pattern here as to which parameter is more crucial to accuracy. A slight pattern seems to exist where smaller sample size (0 - 300) data sets are more likely to have higher degree of errors compared to small kappa (0 - 50) data sets - however, more analysis is needed to establish a well defined pattern.
+As one expects, increasing sample size and concentration increase the accuracy of movRF.
+However, there isn't that clear of a pattern here as to which parameter is more crucial to accuracy.
+A slight pattern seems to exist where smaller sample size (0 - 300) data sets are more likely to have higher degree of errors compared to small kappa (0 - 50) data sets - however, more analysis is needed to establish a well defined pattern.
 
 # Interpretation and Writing
 

@@ -12,60 +12,1029 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
 ```
 
-# Overview
+# Installing required R packages
+
+```{r packages}
+options(repos = c(CRAN = "https://cran.rstudio.com"))
+install.packages("rlang")
+pkgs <- c("movMF", "Directional", "ggplot2", "dplyr", "tidyr", "rgl")
+library(future.apply)
+library(progressr)
+
+plan(multisession, workers = 4)
+
+handlers("txtprogressbar")
+to_install <- setdiff(pkgs, rownames(installed.packages()))
+if (length(to_install) > 0) install.packages(to_install)
+
+invisible(lapply(pkgs, require, character.only = TRUE))
+
+has_rgl <- requireNamespace("rgl", quietly = TRUE)
+if (has_rgl) library(rgl)
+```
+
+# Setting seed
+
+```{r seed}
+set.seed(123)
+```
+
+# Basic helper functions
+
+```{r Basic helper functions}
+# Normalize rows of a matrix to unit length
+normalize_rows <- function(X) {
+  X <- as.matrix(X)
+  norms <- sqrt(rowSums(X^2))
+  return(X/norms)
+}
+
+# Check unit length (returns summary)
+check_unit_length <- function(X) {
+  r <- sqrt(rowSums(as.matrix(X)^2))
+  return(summary(r))
+}
+
+# Angular distance between two unit vectors (in radians and degrees)
+angle_between <- function(u, v) {
+  u <- as.numeric(u) / sqrt(sum(u^2))
+  v <- as.numeric(v) / sqrt(sum(v^2))
+  val <- acos(max(min(sum(u*v), 1), -1))
+  return(c(radians = val, degrees = val * 180 / pi))
+}
+
+within_cosine <- function(X, cluster) {
+  cluster <- as.integer(factor(cluster))
+  K <- max(cluster)
+  out <- numeric(K)
+  
+  for (k in 1:K) {
+    idx <- which(cluster == k)
+    if (length(idx) <= 1) next
+    
+    mu_hat <- colMeans(X[idx, , drop = FALSE])
+    mu_hat <- mu_hat / sqrt(sum(mu_hat^2))
+    out[k] <- mean(X[idx, , drop = FALSE] %*% mu_hat)
+  }
+  
+  mean(out, na.rm = TRUE)
+}
+
+# Fast 2D projections for 3D spherical data
+plot_projections <- function(X, label = NULL, title_prefix = "Projection") {
+  X <- as.data.frame(X)
+  colnames(X) <- paste0("x", 1:ncol(X))
+  if (!is.null(label)) X$cluster <- factor(label)
+
+  p1 <- ggplot(X, aes(x = x1, y = x2, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x2")) +
+    theme_bw()
+
+  p2 <- ggplot(X, aes(x = x1, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x1 vs x3")) +
+    theme_bw()
+
+  p3 <- ggplot(X, aes(x = x2, y = x3, color = cluster)) +
+    geom_point(alpha = 0.7) +
+    labs(title = paste0(title_prefix, ": x2 vs x3")) +
+    theme_bw()
+
+  return(list(p12 = p1, p13 = p2, p23 = p3))
+}
+
+# Simple simulator for helper function demonstration
+simulate_vmf_mixture <- function(d = 3, K_true, n, w, mu_list, k_list, force_min_one){
+  
+  mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2))) # Normalize mean directions
+  
+  if (force_min_one && n >= K_true) { # Forces >= 1 point to be in each cluster
+    z_init <- sample(1:K_true)
+    z_rest <- sample(1:K_true, size = n - K_true, replace = TRUE, prob = w)
+    z <- c(z_init, z_rest)
+  } else {
+    z <- sample(1:K_true, size = n, replace = TRUE, prob = w)
+  }
+  
+  X <- matrix(NA, nrow = n, ncol = d)
+  for (k in 1:K_true) {
+    nk <- sum(z == k)
+    if (nk > 0) {
+      X[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list[k]) 
+    }
+  }
+  
+  check_unit_length(X)
+  table(z)
+  
+  X <- normalize_rows(X)
+  list(X = X, z = z)
+}
+```
+
+# Introduction
+
+Directional data is concerned with unit vectors observations on a circular plane or three dimensional space, rendering standard univariate and multivariate analysis methods obsolete (Mardia, XIX).
+Directional data is encountered in fields such as bioinformatics, collaborative filtering (Banerjee, 1346), and the analysis of text documents (Banerjee, 1348).
+Directional data can also be extended into three dimensions, with practical use of directional data arises in several situations.
+The directions of magnetism in rocks, directions from the Earth to stars, and directions of optical axes in quartz crystals are all best modeled using spherical statistics (Mardia, 175).
+\n Of particular importance to directional statistics is the von-Mises distribution, which is perhaps one of the most useful distributions for statistical inference the distribution most useful for statistical inference (Mardia, 36).
+The vMF distribution is analogous to the well-known Gaussian, or normal distribution (Banerjee, 1350 and Sra, 179), sharing many common properties.
+Similarly to the normal distribution, the vMF distribution takes in two main parameters.
+one, the mean direction μ, which is the average point at which vectors are concentrated, and two, the concentration parameter, k, which is how tightly points are clustering around that mean direction.
+
+Despite being one of the most basic probability distributions for multi-dimensional directional statistics, estimating the maximum likelihood for the vMF distribution is difficult due to a transcendental (non closed form) equation that needs to be solved in order to compute the concentration parameter (Sra, 1).
+This parameter can be approximated through several means, namely the Banerjee, Tanabe, and Newton methods.
+These methods have various advantages and disadvantages.
+The Banerjee method has the advantage of not using function evaluations, and therefore being the fastest out of the three; however, it’s accuracy is the least reliable.
+The Tanabe and Newton methods both are significantly slower, but more accurate.
+In particular, the Newton method is the most accurate.
+
+Of particular importance to analyzing vMF models is mixing multiple vMF distributions, which allows for multiple clusters of data that point in different directions with varying levels of concentration.
+Clustering algorithms often use the generative model framework, applying the expectation maximization algorithm.
+Estimating the concentration parameter k for each of these individual components has been of crucial importance, as it would yield better results, particularly for difficult clustering tasks in higher dimensional spaces (Banerjee, 1345).
+
+In order to fit these vMF models (estimate the parameters of them in order to best explain the data), the Expectation-Maximization, or EM algorithm, is used.
+VMF models that only have a single distribution do not require the EM algorithm; however, the EM algorithm becomes crucial when there are clusters of data, meaning various vMF models are mixed together.
+The expectation stage of the EM model computes the probability each data point came from a certain cluster, then during the maximization stage attempts to best update the parameters of each vMF distribution in order to best fit the data (Hornik).
+In Hornik and Grun’s movMF, an R package using the EM algorithm has been created with the aim of fitting vMF mixtures: “The R package movMF contains functionality to draw samples from finite mixtures of von Mises-Fisher distributions and to fit these models using the expectation-maximization algorithm for maximum likelihood estimation” (Hornik, 1).
+Various examples of use are given, such as clustering text documents (Hornik, 24), which can group components within a document based on the detection of certain keywords.
+
+In this project, implementation of the EM algorithm will be done using the movRF package.
+Various sets of vMF data will be analyzed and clustered, with mean direction and k-values being estimated.
+Comparisons to Euclidean k-value clustering techniques will be drawn, and clusters will be visualized on the unit sphere.
+Overall, we will aim to analyze how well the movRF package implements the EM algorithm for analyzing vMF data, and conduct several case studies using various datasets.
+ 
+## Simulation: Generating vMF Data in 3D
+
+In order to a handle on what simulated vMF data is like, we create a basic dataset that shows what a vMF distribution looks like.
+
+The parameters we are working with are as follows:
+
+**mu**: The mean direction unit vectors are pointing in.
+This cannot be made more difficult, and all mu values will be of equal complexity for movMF to work with.
+
+**kappa**: The measure of how strongly data is concentrated around the mean direction.
+A lower value means lower concentration, making it more difficult for movMF to estimate the mean direction.
+A value of 0 would even mean complete dispersion of unit vectors, with no adherence to the mean direction whatsoever.
+A higher concentration means increasing adherence to the mean direction.
+
+**n**: The number of unit vectors (points) we are working with.
+Higher values of n means a greater sample size for movMF to work with, creating more ease of estimating the mean direction.
+
+# Creating basic parameter set
+
+```{r basic params}
+# A very optimal set of parameters for a vMF analysis. 
+mu_base <- c(0, 0, 1) # mean direction
+kappa_base <- 10 
+n_base <- 200
+
+# Normalizing base parameters
+mu_base_norm <- sqrt(sum(mu_base^2))
+mu_base_norm
+
+# Checking if mu is normalized. If not, it is normalized
+mu_base <- mu_base / sqrt(sum(mu_base^2))
+mu_base
+```
+# Simulating base vMF distribution data
+
+This will simulate the hundred data points requested in the base vMF data.
+We only print the head of data created, so six points are visible.
+Printing the length of the data divided by three confirms 200 points were created, with three coordinates each.
+
+```{r Data Simulation: Base}
+X_base <- rmovMF(n_base, mu_base, kappa_base)
+head(X_base)
+print("length: " )
+print(length(X_base)/3)
+```
+
+We need to always sanity check this because vectors must be unit length.
+If not, k estimations will not function.
+
+```{r Sanity Check: X_base Unit Length}
+lens_base <- sqrt(rowSums(X_base^2))
+summary(lens_base)
+```
+
+## Visualization
+
+We can get a good graph on what this data looks like by visualizing it, both on the three 2D planes and a 3D representation of the unit sphere.
+
+# 2D planes
+```{r plot-xy: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(x, y)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (x vs y)", x = "x", y = "y")
+```
+
+```{r plot-xz: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(x, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (x vs z)", x = "x", z = "z")
+```
+
+```{r plot-yz: base}
+df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
+
+ggplot(df, aes(y, z)) +
+  geom_point(alpha = 0.6) +
+  coord_equal() +
+  theme_minimal() +
+  labs(title = "Projection of base vMF data Samples (y vs z)", y = "y", z = "z")
+```
+
+# 3D projection
+```{r base plot-3d}
+library(rgl)
+open3d()
+plot3d(X_base, col = "blue", size = 5)
+rglwidget()
+```
+
+## Parameter estimation
+
+In parameter estimation, we can attempt to estimate mean and concentration without knowing beforehand.
+
+```{r base parameter estimation}
+# Estimating base mean
+mu_base_hat_raw <- colMeans(X_base)
+mu_base_hat <- mu_base_hat_raw / sqrt(sum(mu_base_hat_raw^2))
+mu_base_hat
+```
+
+The degree of error between true mu and estimated one can be measured by taking angle between vectors.
+
+```{r base mu-comparison}
+mu_base_true <- mu_base
+
+# Angle between vectors
+angle_base_rad <- acos(sum(mu_base_true * mu_base_hat))
+angle_base_deg <- angle_base_rad * 180 / pi
+
+list(
+  mu_base_true = mu_base_true,
+  mu_base_hat = mu_base_hat,
+  base_angle_degrees= angle_base_deg
+)
+```
+
+# Concentration estimation
+
+movMF can attempt to estimate the concentration variable K, which is the foremost variable being studied and approximated.
+
+```{r base k estimation}
+# Setting k to 1 fits a single vMF distribution. Therefore, the E step in the EM algorithm is skipped - every point will belong to the same component. Only the M step is used.
+fit1 <- movMF(X_base, k = 1)
+fit1
+
+kappa_base_hat <- norm(fit1$theta, "2")
+mu_base_hat_mle <- fit1$theta/kappa_base_hat
+
+list(
+  # Estimation of mean
+  mu_base_hat_mle = mu_base_hat_mle,
+  # Estimation of kappa
+  kappa_base_hat = kappa_base_hat
+)
+```
+
+As we can see here, estimating the concentration is a much more difficult task than estimating the mean.
+The question remains of what exactly throws off the algorithm so much - is it sample size, or the concentration itself? These questions can be further investigated by the reader in the Phase 2 file, which includes this content and a further study into what effects the accuracy of movRF. For the sake of brevity, this file will only go in depth on later studies involving multiple mixtures.
+
+## Multiple Mixtures
+
+In this section, mixtures of vMF distributions are fit, rather than just a single one. This is far more realistic for the work being done with movMF, as seldom are we dealing with just a single mixture. 
+
+# Creating a basic mixture model
+
+This example mixture model, five mixtures are created with equal weights, and they are all very far away from each other. This is similar to the "base" model we used in the single distrubtion model, where the purpose of it is demonstration rather than rigorous testing.
+
+```{r simulated mixture}
+d <- 3 # Number of dimensions
+K_true <- 5
+n <- 500
+
+# Mixture weights
+w <- c(0.20, 0.20, 0.20, 0.20, 0.20)
+
+# Component mean directions
+mu_list <- list(
+  c(1, 0, 0),
+  c(0, 1, 0),
+  c(0, 0, 1),
+  c(1, 1, 0),
+  c(1, 0, 1)
+)
+mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2)))
+
+# Component concentrations (kappas)
+# A larger value means tighter clustering
+k_list <- c(25, 40, 30, 15, 20)
+
+# Sample component labels
+z <- sample(1:K_true, size = n, replace = TRUE, prob = w)
+
+# Generate data (rmovMF parameter: theta = mu*kappa)
+X <- matrix(NA, nrow = n, ncol = d)
+for (k in 1:K_true) {
+  nk <- sum(z == k)
+  if (nk > 0) {
+    X[z == k, ] <- movMF::rmovMF(nk, theta = mu_list[[k]]*k_list[k]) 
+  }
+}
+
+# Sanity checks
+check_unit_length(X)
+table(z)
+```
+
+# Visualizing the mixture
+
+# 2D planes 
+```{r phase3 projections}
+plots <- plot_projections(X, label = z, title_prefix = "True mixture (simulated)")
+plots$p12
+plots$p13
+plots$p23
+```
+
+# 3D projection
+```{r phase3-3d, eval=TRUE}
+# Interactive 3D plot
+rgl::open3d()
+cols <- as.integer(factor(z))
+rgl::plot3d(X, col = cols, size = 5, type = "s")
+rgl::title3d("Simulated mixture on the unit sphere")
+rgl::rglwidget()
+```
+
+# Attempting to fix mixtures of vMF for multiple K, and select K
+
+We will fit vMF mixtures, and compute BIC (grid over K). BIC is used for model selection, and helps us determine how well a model explains the data.
+
+```{r fit-grid}
+K_grid <- 1:8
+fits <- vector("list", length(K_grid))
+names(fits) <- paste0("K", K_grid)
+
+# Data must be in a matrix. 
+
+X_unit <- normalize_rows(X)
+
+for (K in K_grid) {
+  fits[[paste0("K", K)]] <- movMF::movMF(X_unit, k = K, nruns = 10)
+}
+
+# Extract, store BIC values
+bic_df <- data.frame(
+  K = K_grid,
+  BIC = sapply(fits, BIC)
+)
+
+bic_df
+```
+
+BIC is determining what amount of models the data most likely has,with a lower BIC being better. In this case, BIC shows that 5 is the best fit.
+
+This chosen K makes sense, as we did indeed select 5 mixtures to work with earlier. However, the BIC was nearly flat, which indicate that movRF was starting to having some trouble.
+     
+```{r choose-K}
+K_hat <- bic_df$K[which.min(bic_df$BIC)]
+K_hat
+best_fit <- fits[[paste0("K", K_hat)]]
+```
+
+```{r bic-plot}
+ggplot(bic_df, aes(x = K, y = BIC)) +
+  geom_point() +
+  geom_line() +
+  theme_bw() +
+  labs(title = "Model selection for vMF mixtures", subtitle = "Choose K with the smallest BIC", x = "Number of components (K)", y = "BIC")
+```
+
+# Final Study
 
 In this analysis, a large scale comparison between the effectiveness of Euclidian and Spherical Analysis models is conducted. This is done via comparing against several variables:
 
-1. Total number of mixtures: The number of mixtures being fitted in each dataset. 
-2. Sample size: The total number of points in each dataset. 
-3. Average concentration: The average concentration of mixtures.
+1.  Total number of mixtures: The number of mixtures being fitted in each dataset.
 
-Three more variables represent the variance of mixtures, concentrations, and means:
-1. Variance of means: Means always being 90 degrees apart from each other wouldn't be too realistic. 
-2. Variance of concentrations: Concentrations should not all be the "average concentration"; this controls how much the concentrations vary around the mean concentration
-3. Variance of sample sizes: Mixture sizes vary from all being the same size (portion of total sample size allocated to them), to highly varying in what portion of the total sample size is allocated to them.
+2.  Sample size: The total number of points in each dataset.
 
-In order to analyze these how variables, 
+3.  Average concentration: The average concentration of mixtures.
 
-```{r helper functions}
+Three more variables represent the variance of mixtures, concentrations,
+and means:
 
-### generate_mus
-# This function generates the vector means for mixtures in datasets.
-# A "perfect" dataset would have mixtures centered far away from each other; the means would look like (0, 0, 1), (1, 0, -1) etc. Obviously, this isn't realistic, and we have to consider that vector means might be close to each other, and that mixtures might nearly be overlapping.
-# This function aims to simulate the challenges of this parameter, and creates sets of means according to cosine similarity.
-# Cosine similiarity is simply the cosine of angles between two vectors
-generate_mus <- function(K, d = 3, separation = 1, max_iter = 1000) {
+1. Variance of means: Means always being 90 degrees apart from each
+other wouldn't be too realistic.
+
+```{r mean variance helper function}
+# Generates K mean directions, with separation of the directions and number of mean directions specified.
+generate_mus <- function(K, d = 3, separation = 1, max_iter = 500) {
   
-  # Upper bounds on cosine similarity (i.e., enforce minimum angle)
-  max_cos_allowed <- switch(
+  target <- switch(
     as.character(separation),
-    "1" = 0.4,   # well separated
-    "2" = 0.7,   # moderate
-    "3" = 0.9    # weak separation
+    "1" = c(0.2, 0.4), # Vectors are very separated
+    "2" = c(0.5, 0.7), # Vectors are less separated
+    "3" = c(0.75, 0.9), # Vectors start to become more clustered
+    "4" = c(0.9, 0.95) # Extremely clustered vectors
   )
   
   for (iter in 1:max_iter) {
-    M <- matrix(rnorm(K * d), K, d)
-    M <- M / sqrt(rowSums(M^2))
+    M <- matrix(rnorm(K * d), K, d) # Random matrix, K (amount of directions) * 3 dimensions
+    M <- M / sqrt(rowSums(M^2)) # Normalize each row
     
-    cos_mat <- M %*% t(M)
-    cos_vals <- cos_mat[upper.tri(cos_mat)]
+    cos_vals <- (M %*% t(M))[upper.tri(M %*% t(M))] # Computes cosine-similarity matrix
     
-    # Enforce minimum separation via max cosine similarity
-    if (max(cos_vals) <= max_cos_allowed) {
+    if (mean(cos_vals) >= target[1] && mean(cos_vals) <= target[2]) { # Checks if average of pairwise cosines lies inside our target interval. Only returns if it does.
       return(split(M, row(M)))
     }
   }
   
-  warning("Did not meet separation constraint; returning last sample.")
   split(M, row(M))
 }
-generate_mus(3, 3, 1)
-
-generate_mus(3, 3, 2)
-
-generate_mus(3, 3, 3)
 ```
+
+```{r variance of means helper function example}
+K_true       <- 3
+n            <- 500
+fixed_w      <- c(0.33, 0.33, 0.34)   # almost equal weights
+fixed_kappas <- rep(30, K_true)                       # equal concentrations
+
+sims <- lapply(1:4, function(sep_level) {
+  
+  mu_list <- generate_mus(K = K_true, d = 3, separation = sep_level)
+  
+  sim <- simulate_vmf_mixture(
+    d          = 3,
+    K_true     = K_true,
+    n          = n,
+    w          = fixed_w,
+    mu_list    = mu_list,
+    k_list     = fixed_kappas,
+    force_min_one = TRUE
+  )
+  
+  list(X = sim$X, z = sim$z, sep_level = sep_level)
+})
+
+labels <- c(
+  "1 = Very separated mean directions",
+  "2 = Moderately separated",
+  "3 = Starting to cluster",
+  "4 = Extremely clustered (almost overlapping)"
+)
+
+# 2D projections
+for (i in seq_along(sims)) {
+  plots <- plot_projections(sims[[i]]$X,
+  label = sims[[i]]$z,
+  title_prefix = labels[i])
+  print(plots$p12)
+}
+
+# 3D projections
+for (i in seq_along(sims)) {
+  rgl::open3d(useNULL = TRUE)
+  cols <- as.integer(factor(sims[[i]]$z))
+  rgl::plot3d(sims[[i]]$X, col = cols, size = 3, type = "s")
+  rgl::title3d(main = labels[i])
+  widget <- rgl::rglwidget()
+  rgl::close3d()
+  print(widget)
+}
+```
+
+2.  Variance of concentrations: Concentrations should not all be the
+    "average concentration"; this controls how much the concentrations
+    vary around the mean concentration. A dedicated helper function is
+    used to generate these kappas.
+
+```{r concentration variance helper function and example}
+make_kappas <- function(K, kappa_mean, variation = 1) {
+  
+  # map variation level to log-scale spread
+  sigma <- switch(
+    as.character(variation),
+    "1" = 0.2, # Creates a very tight cluster around mean
+    "2" = 0.5, # Moderate spread around given mean
+    "3" = 0.8, # Creates wide spread around given mean
+    "4" = 1.1, # Very wide spread around mean
+    stop("variation must be 1, 2, 3, or 4")
+  )
+  
+  # log-mean so that expected value ≈ kappa_mean
+  mu <- log(kappa_mean) - (sigma^2 / 2) # Guarantees positivity
+  
+  # sample kappas
+  kappas <- rlnorm(K, meanlog = mu, sdlog = sigma)
+  
+  return(kappas)
+}
+```
+
+```{r variance of concentrations example}
+# Example of all four variances
+K_true <- 3
+n <- 500
+w <- c(0.33, 0.33, 0.34) # Weights are uniform
+mu_list <- list(c(1, 0, 0), c(0, 1, 0), c(0, 0, 1)) # Means are all equally distant from each other
+kappa_mean <- 30
+
+sims <- lapply(1:4, function(var_level){
+  
+  kappas <- make_kappas(K = K_true, 
+                        kappa_mean = kappa_mean, 
+                        variation = var_level)
+  
+  sim <- simulate_vmf_mixture(
+    d       = 3,
+    K_true  = K_true,
+    n       = n,
+    w       = fixed_w,
+    mu_list = mu_list,
+    k_list  = kappas,
+    force_min_one = TRUE
+  )
+  list(X = sim$X, z = sim$z, var_level = var_level)
+})
+
+labels <- c(
+  "1 = Very equal concentrations (tight cluster around mean)",
+  "2 = Moderate concentration variation",
+  "3 = High concentration variation",
+  "4 = Very unequal concentrations (some very peaked, some very broad)"
+)
+
+# 2D projections
+for (i in seq_along(sims)) {
+  plots <- plot_projections(sims[[i]]$X,
+  label = sims[[i]]$z,
+  title_prefix = labels[i])
+  print(plots$p12)
+}
+
+# 3D projections
+for (i in seq_along(sims)) {
+  rgl::open3d(useNULL = TRUE)
+  cols <- as.integer(factor(sims[[i]]$z))
+  rgl::plot3d(sims[[i]]$X, col = cols, size = 3, type = "s")
+  rgl::title3d(labels[i])
+  widget <- rgl::rglwidget()
+  rgl::close3d()
+  print(widget)
+}
+```
+
+3. Variance of sample sizes: Mixture sizes vary from all being the same size (portion of total sample size allocated to them), to highly varying in what portion of the total sample size is allocated to them.
+
+```{r sample size variance example}
+make_weights <- function(K, variation = 1) {
+  
+  # Variation of weights, samples from a Dirichlet distribution. 
+  alpha <- switch(
+    as.character(variation),
+    "1" = 10, # Weights are very similar, almost uniform
+    "2" = 2, 
+    "3" = 0.7,
+    "4" = 0.3, # Weights are very unequal, some are very large, others are near zero.
+    stop("variation must be 1, 2, 3, or 4")
+  )
+  
+  # Dirichlet via Gamma
+  x <- rgamma(K, shape = alpha, rate = 1) # Draws K independent numbers from a gamma distribution
+  w <- x / sum(x) # Normalizes each vector
+  
+  return(w)
+}
+
+# Example of all four variances
+w <- c(0.33, 0.33, 0.34) # Weights are uniform
+mu_list <- list(c(1, 0, 0), c(0, 1, 0), c(0, 0, 1)) # Means are all equally distant from each other
+sims <- lapply(1:4, function(var_level){
+  sim <- simulate_vmf_mixture(
+    d = 3,
+    K_true = 3,
+    n = 500,
+    w = make_weights(3, var_level),
+    mu_list = mu_list,
+    k_list = fixed_kappas,
+    force_min_one = TRUE
+  )
+  list(X = sim$X, z = sim$z, var_level = var_level)
+})
+
+labels <- c("Very equal weights (almost uniform)",
+            "Moderate weight variation",
+            "High weight variation",
+            "Very unequal weights")
+
+for (i in seq_along(sims)) {
+  plots <- plot_projections(sims[[i]]$X,
+  label = sims[[i]]$z,
+  title_prefix = labels[i])
+  print(plots$p12)
+}
+
+for (i in seq_along(sims)) {
+  rgl::open3d(useNULL = TRUE)
+  cols <- as.integer(factor(sims[[i]]$z))
+  rgl::plot3d(sims[[i]]$X, col = cols, size = 3, type = "s")
+  rgl::title3d(labels[i])
+  widget <- rgl::rglwidget()
+  rgl::close3d()
+  print(widget)
+}
+
+```
+
+# Superfunction used for each mixture setting
+
+```{r superfunction}
+simulate_complete <- function(number_mixtures) {
+  grid <- expand.grid(
+  n = seq(100, 1000, by = 200),
+  kappa_mean = seq(10, 100, by = 20),
+  weight_var = 1:4,
+  kappa_var = 1:4,
+  mu_sep = 1:4,
+  rep = 1:25
+) %>%
+  as_tibble()
+
+K <- number_mixtures # Number of mixtures (two in this case)
+d <- 3 # Number of dimensions (always three)
+
+with_progress({
+  p <- progressor(steps = nrow(grid))
+  
+  results <- future_lapply(seq_len(nrow(grid)), function(i) {
+    
+    p(sprintf("Sim %d", i))
+    row <- grid[i, ]
+    
+    w <- make_weights(K, row$weight_var)
+    kappas <- make_kappas(K, row$kappa_mean, row$kappa_var)
+    mus <- generate_mus(K, d, row$mu_sep)
+    
+   sim <- simulate_vmf_mixture(
+        d       = d,
+        K_true  = K,
+        n       = row$n,
+        w       = w,
+        mu_list = mus,
+        k_list  = kappas,
+        force_min_one = TRUE
+      )
+    
+    vmf_fit <- tryCatch(
+      movMF::movMF(sim$X, k = K, nruns = 3),
+      error = function(e) NULL
+    )
+    
+    vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
+    
+    vmf_score <- if (all(is.na(vmf_cluster))) NA else
+      within_cosine(sim$X, vmf_cluster)
+    
+    km <- kmeans(sim$X, centers = K, nstart = 5)
+    km_score <- within_cosine(sim$X, km$cluster)
+    
+    data.frame(
+      n = row$n,
+      kappa_mean = row$kappa_mean,
+      weight_var = row$weight_var,
+      kappa_var = row$kappa_var,
+      mu_sep = row$mu_sep,
+      rep = row$rep,
+      vmf_score = vmf_score,
+      km_score = km_score
+    )
+    
+  }, future.seed = TRUE)
+  
+  results <- bind_rows(results)
+})
+
+results <- results %>%
+  mutate(
+    diff = vmf_score - km_score,
+    vmf_win = vmf_score > km_score
+  )
+
+win_df <- results %>%
+  group_by(n, kappa_mean, weight_var, kappa_var, mu_sep) %>%
+  summarise(
+    win_rate = mean(vmf_win, na.rm = TRUE),
+    diff_mean = mean(diff, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+for (lvl in 1:4) {
+  
+  plot_df <- win_df %>%
+    filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    
+    scale_fill_gradient2(
+      low = "blue",
+      mid = "white",
+      high = "red",
+      midpoint = 0.5,
+      name = "vMF win rate"
+    ) +
+    
+    facet_grid(weight_var ~ kappa_var) +
+    
+    labs(
+      title = "vMF vs k-means Performance",
+      subtitle = paste("μ separation level =", lvl,
+                       "| Rows: weight variation | Columns: kappa variation"),
+      x = "Mean concentration (kappa)",
+      y = "Sample size (n)"
+    ) +
+    
+    theme_bw()
+  
+  print(p)
+  }
+  invisible(list(raw = results, summary = win_df))
+}
+```
+
+# Specialized superfunction: Used for single sample sizes
+This superfunction variant was made to handle single mixtures, as the process is different enough from multiple mixtures to warrant it's own function.
+
+```{r singular superfunction}
+simulate_complete_single <- function() {
+  grid <- expand.grid(
+  n          = seq(100, 1000, by = 200), # We go from 100 to 1000 sample size, in iterations of 200
+  kappa_mean = seq(10, 100, by = 20), # We go from 10 to 100 sample size, in iterations of 20
+  rep        = 1:25 # 25 repetitions to do Monte Carlo simulation
+) %>% as_tibble()
+  
+  K <- 1 # Only a single mixture
+  d <- 3 # Three dimensions, as per usual
+
+
+with_progress({
+  p <- progressor(steps = nrow(grid)) # Want to have progress bar if this is being ran on it's own. Otherwise, we have no idea where the simulation is going.
+  
+  results <- future_lapply(seq_len(nrow(grid)), function(i) {
+    p(sprintf("Sim %d", i))
+    row <- grid[i, ]
+    
+    mu_list <- list(c(1, 0, 0))
+    kappas  <- make_kappas(K, row$kappa_mean, variation = 1)
+    
+    # Generate data from a single vMF component
+    sim <- simulate_vmf_mixture(
+      d          = d,
+      K_true     = K,
+      n          = row$n,
+      w          = 1,                    
+      mu_list    = mu_list,
+      k_list     = kappas,
+      force_min_one = TRUE
+    )
+    
+    vmf_fit <- tryCatch(
+      movMF::movMF(sim$X, k = K, nruns = 3),
+      error = function(e) NULL
+    )
+    vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
+    vmf_score   <- if (all(is.na(vmf_cluster))) NA else   within_cosine(sim$X, vmf_cluster)
+    
+    km       <- kmeans(sim$X, centers = K, nstart = 5)
+    km_score <- within_cosine(sim$X, km$cluster)
+    
+    data.frame(
+      n          = row$n,
+      kappa_mean = row$kappa_mean,
+      rep        = row$rep,
+      vmf_score  = vmf_score,
+      km_score   = km_score
+    )
+  }, future.seed = TRUE)
+  
+  results <- bind_rows(results)
+})
+
+win_df <- results %>%
+  group_by(n, kappa_mean) %>%
+  summarise(
+    mean_tightness = mean(vmf_score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+invisible(list(raw = results, summary = win_df))
+}
+```
+
+# Two Mixtures
+
+```{r double mixture simulation, cache=TRUE}
+# We do NOT want to run this simulation every time the page is ran, or especially when it is knitted.
+# Therefore we check if the simulation has been ran first. If it has, the simulation has been saved to a file.
+# knittr then retrieves it and uses it, instead of running the simulation itself and likely crashing.
+if (!file.exists("simulation_results_K2.rds")) {
+  message("No saved results found — running full simulation...")
+  result <- simulate_complete(2)
+  saveRDS(result, "simulation_results_K2.rds")
+} else {
+  message("loading cached simulation results...")
+  result <- readRDS("simulation_results_K2.rds")
+  
+  win_df <- result$summary
+
+for (lvl in 1:4) {
+  plot_df <- win_df %>% filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                         midpoint = 0.5, name = "vMF win rate") +
+    facet_grid(weight_var ~ kappa_var) +
+    labs(title = "vMF vs k-means Performance",
+         subtitle = paste("μ separation level =", lvl,
+                          "| Rows: weight variation | Columns: kappa variation"),
+         x = "Mean concentration (kappa)",
+         y = "Sample size (n)") +
+    theme_bw()
+  
+  print(p)
+  }
+}
+```
+# Two mixtures analysis
+
+μ separation level 1 (more mixture separation): vMF has the edge with very unconcentrated mixtures, particularly when the mean concentration is low as well. Also this is perhaps a niche case, this is a good sign, as estimating mixtures is at it's most difficult here.
+
+μ separation level 2 (less mixture separation): Similar to level 1. However, vMF only has a decisive edge with 
+
+μ separation level 3 (slight mixture clustering):
+
+μ separation level 4 (high mixture clustering):
+In this simulation, vMF seems to dominate a specific case: high mean concentration (50 - 90), concentrations are nearly uniform, and weights are nearly uniform to moderately varied. The trend slightly continues with concentrations being more varied, but rapidly tapers off when they become even more varied.
+
+Overall Analysis:
+
+# Three mixtures
+
+```{r triple mixture simulation, cache=TRUE}
+if (!file.exists("simulation_results_K3.rds")) {
+  message("No saved results found — running full simulation...")
+  result <- simulate_complete(3)
+  saveRDS(result, "simulation_results_K3.rds")
+} else {
+  message("loading cached simulation results...")
+  result <- readRDS("simulation_results_K3.rds")
+  
+  win_df <- result$summary
+
+for (lvl in 1:4) {
+  plot_df <- win_df %>% filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                         midpoint = 0.5, name = "vMF win rate") +
+    facet_grid(weight_var ~ kappa_var) +
+    labs(title = "vMF vs k-means Performance",
+         subtitle = paste("μ separation level =", lvl,
+                          "| Rows: weight variation | Columns: kappa variation"),
+         x = "Mean concentration (kappa)",
+         y = "Sample size (n)") +
+    theme_bw()
+  
+  print(p)
+  }
+}
+```
+# Three mixtures analysis
+
+μ separation level 1 (more mixture separation): vMF has the edge with very unconcentrated mixtures, particularly when the mean concentration is low as well. Also this is perhaps a niche case, this is a good sign, as estimating mixtures is at it's most difficult here.
+
+μ separation level 2 (less mixture separation): Similar to level 1. However, vMF only has a decisive edge with 
+
+μ separation level 3 (slight mixture clustering): vMF is does quite well when concentrations don't vary much and concentration isn't low. This trend continues until mixture weights highly vary; however, even in the most varied sample, vMF managed to hold on with very low sample sizes. This combination (low sample size, high weight variantion, AND low kappa variation) is quite difficult, so even though it is a sliver of the data, this shows a pain point where vMF is strong.
+
+μ separation level 4 (high mixture clustering): vMF has mostly completely lost the edge. With small sample sizes, sometimes it edges out k-means, but it is uncommon and only occurs with high kappa variation. 
+
+In this simulation, vMF seems to have the edge when:
+
+Overall Analysis:
+
+In this simulation, vMF seems to lose some of the edge it had in the two mixture distribution. It reliably holds an advantage only in two circumstances: 
+- Case 1 (in mean separation level 1): Mixtures are very far from each other, the weights are not extremely varied, the mean concentrations are very low and unformly sparse.
+- Case 2 (in mean separation level 3): Mixtures are somewhat closer to each other, concentrations are >= 50, and concentrations aren't often far from the mean concentration of all the mixtures.
+
+# Five mixtures
+
+```{r five mixtures simuation, cache=TRUE}
+if (!file.exists("simulation_results_K5.rds")) {
+  message("No saved results found — running full simulation...")
+  result <- simulate_complete(5)
+  saveRDS(result, "simulation_results_K5.rds")
+} else {
+  message("loading cached simulation results...")
+  result <- readRDS("simulation_results_K5.rds")
+  
+  win_df <- result$summary
+
+for (lvl in 1:4) {
+  plot_df <- win_df %>% filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                         midpoint = 0.5, name = "vMF win rate") +
+    facet_grid(weight_var ~ kappa_var) +
+    labs(title = "vMF vs k-means Performance",
+         subtitle = paste("μ separation level =", lvl,
+                          "| Rows: weight variation | Columns: kappa variation"),
+         x = "Mean concentration (kappa)",
+         y = "Sample size (n)") +
+    theme_bw()
+  
+  print(p)
+  }
+}
+```
+# Five mixtures analysis
+
+μ separation level 1 (more mixture separation): vMF seems to have the edge when concentrations aren't varied and are nearly uniform, and weights are nearly uniform to moderatly varied. In increasing variations of concentrations, the efficacy of vMF vs kmeans becomes more contested.
+
+μ separation level 2 (less mixture separation): Much like separation level 1, but vMF is less dominant overall. Interestingly, kmeans completely dominates where mean concentration is very low.
+
+μ separation level 3 (slight mixture clustering):
+
+μ separation level 4 (high mixture clustering):
+
+In this simulation, vMF seems to have the edge when:
+
+Overall Analysis:
+
+# Seven mixtures
+```{r seven mixtures simuation, cache=TRUE}
+if (!file.exists("simulation_results_K7.rds")) {
+  message("No saved results found — running full simulation...")
+  result <- simulate_complete(7)
+  saveRDS(result, "simulation_results_K7.rds")
+} else {
+  message("loading cached simulation results...")
+  result <- readRDS("simulation_results_K7.rds")
+  
+  win_df <- result$summary
+
+for (lvl in 1:4) {
+  plot_df <- win_df %>% filter(mu_sep == lvl)
+  
+  p <- ggplot(plot_df, aes(x = factor(kappa_mean), y = factor(n), fill = win_rate)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient2(low = "blue", mid = "white", high = "red",
+                         midpoint = 0.5, name = "vMF win rate") +
+    facet_grid(weight_var ~ kappa_var) +
+    labs(title = "vMF vs k-means Performance",
+         subtitle = paste("μ separation level =", lvl,
+                          "| Rows: weight variation | Columns: kappa variation"),
+         x = "Mean concentration (kappa)",
+         y = "Sample size (n)") +
+    theme_bw()
+  
+  print(p)
+  }
+}
+```
+# Seven mixtures analysis
+
+μ separation level 1 (more mixture separation): 
+
+μ separation level 2 (less mixture separation):
+
+μ separation level 3 (slight mixture clustering):
+
+μ separation level 4 (high mixture clustering):
+
+Overall Analysis:
+
+# Conclusion
+
+# Limitations and future work
