@@ -1,0 +1,85 @@
+---
+title: "Archive"
+output: html_document
+date: "2026-04-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is a boneyard for old unused code that seemed too handy to delete.
+
+# Specialized superfunction: Used for single sample sizes
+
+This superfunction variant was made to handle single mixtures, as the
+process is different enough from multiple mixtures to warrant it's own
+function.
+
+```{r singular superfunction}
+simulate_complete_single <- function() {
+  grid <- expand.grid(
+  n          = seq(100, 1000, by = 200), # We go from 100 to 1000 sample size, in iterations of 200
+  kappa_mean = seq(10, 100, by = 20), # We go from 10 to 100 sample size, in iterations of 20
+  rep        = 1:25 # 25 repetitions to do Monte Carlo simulation
+) %>% as_tibble()
+  
+  K <- 1 # Only a single mixture
+  d <- 3 # Three dimensions, as per usual
+
+
+with_progress({
+  p <- progressor(steps = nrow(grid)) # Want to have progress bar if this is being ran on it's own. Otherwise, we have no idea where the simulation is going, or if it is actually running. Crucial because it rarely, but sometimes, crashes.
+  
+  results <- future_lapply(seq_len(nrow(grid)), function(i) {
+    p(sprintf("Sim %d", i))
+    row <- grid[i, ]
+    
+    mu_list <- list(c(1, 0, 0))
+    kappas  <- make_kappas(K, row$kappa_mean, variation = 1)
+    
+    # Generate data from a single vMF component
+    sim <- simulate_vmf_mixture(
+      d          = d,
+      K_true     = K,
+      n          = row$n,
+      w          = 1,                    
+      mu_list    = mu_list,
+      k_list     = kappas,
+      force_min_one = TRUE
+    )
+    
+    vmf_fit <- tryCatch(
+      movMF::movMF(sim$X, k = K, nruns = 3),
+      error = function(e) NULL
+    )
+    vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
+    vmf_score   <- if (all(is.na(vmf_cluster))) NA else   within_cosine(sim$X, vmf_cluster)
+    
+    km       <- kmeans(sim$X, centers = K, nstart = 5)
+    km_score <- within_cosine(sim$X, km$cluster)
+    
+    data.frame(
+      n          = row$n,
+      kappa_mean = row$kappa_mean,
+      rep        = row$rep,
+      vmf_score  = vmf_score,
+      km_score   = km_score
+    )
+  }, future.seed = TRUE)
+  
+  results <- bind_rows(results)
+})
+
+win_df <- results %>%
+  group_by(n, kappa_mean) %>%
+  summarise(
+    mean_tightness = mean(vmf_score, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+invisible(list(raw = results, summary = win_df))
+}
+```

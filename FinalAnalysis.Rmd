@@ -66,6 +66,7 @@ angle_between <- function(u, v) {
   return(c(radians = val, degrees = val * 180 / pi))
 }
 
+# Cosine similarity metric that measures how tightly points in a cluster stick to their mean direction
 within_cosine <- function(X, cluster) {
   cluster <- as.integer(factor(cluster))
   K <- max(cluster)
@@ -112,7 +113,7 @@ simulate_vmf_mixture <- function(d = 3, K_true, n, w, mu_list, k_list, force_min
   
   mu_list <- lapply(mu_list, function(m)m / sqrt(sum(m^2))) # Normalize mean directions
   
-  if (force_min_one && n >= K_true) { # Forces >= 1 point to be in each cluster
+  if (force_min_one && n >= K_true) { # Forces >= 1 point to be in each cluster. Note that we do NOT do this for actual tests. Maybe we should??? 
     z_init <- sample(1:K_true)
     z_rest <- sample(1:K_true, size = n - K_true, replace = TRUE, prob = w)
     z <- c(z_init, z_rest)
@@ -138,61 +139,105 @@ simulate_vmf_mixture <- function(d = 3, K_true, n, w, mu_list, k_list, force_min
 
 # Introduction
 
-Directional data is concerned with unit vectors observations on a circular plane or three dimensional space, rendering standard univariate and multivariate analysis methods obsolete (Mardia, XIX).
-Directional data is encountered in fields such as bioinformatics, collaborative filtering (Banerjee, 1346), and the analysis of text documents (Banerjee, 1348).
-Directional data can also be extended into three dimensions, with practical use of directional data arises in several situations.
-The directions of magnetism in rocks, directions from the Earth to stars, and directions of optical axes in quartz crystals are all best modeled using spherical statistics (Mardia, 175).
-\n Of particular importance to directional statistics is the von-Mises distribution, which is perhaps one of the most useful distributions for statistical inference the distribution most useful for statistical inference (Mardia, 36).
-The vMF distribution is analogous to the well-known Gaussian, or normal distribution (Banerjee, 1350 and Sra, 179), sharing many common properties.
-Similarly to the normal distribution, the vMF distribution takes in two main parameters.
-one, the mean direction μ, which is the average point at which vectors are concentrated, and two, the concentration parameter, k, which is how tightly points are clustering around that mean direction.
+Directional data is concerned with unit vectors observations on a
+circular plane or three dimensional space, rendering standard univariate
+and multivariate analysis methods obsolete (Mardia, XIX). Directional
+data is encountered in fields such as bioinformatics, collaborative
+filtering (Banerjee, 1346), and the analysis of text documents
+(Banerjee, 1348). Directional data is often extended into three
+dimensions, with practical use of directional data arising in several
+situations. The directions of magnetism in rocks, directions from the
+Earth to stars, and directions of optical axes in quartz crystals are
+all best modeled using spherical statistics (Mardia, 175). \n Of
+particular importance to directional statistics is the von-Mises
+distribution, which is perhaps one of the most useful distributions for
+statistical inference the distribution most useful for statistical
+inference (Mardia, 36). The vMF distribution is analogous to the
+well-known Gaussian, or normal distribution (Banerjee, 1350 and Sra,
+179), sharing many common properties. Similarly to the normal
+distribution, the vMF distribution takes in two main parameters. one,
+the mean direction μ, which is the average point at which vectors are
+concentrated, and two, the concentration parameter, k, which is how
+tightly points are clustering around that mean direction.
 
-Despite being one of the most basic probability distributions for multi-dimensional directional statistics, estimating the maximum likelihood for the vMF distribution is difficult due to a transcendental (non closed form) equation that needs to be solved in order to compute the concentration parameter (Sra, 1).
-This parameter can be approximated through several means, namely the Banerjee, Tanabe, and Newton methods.
-These methods have various advantages and disadvantages.
-The Banerjee method has the advantage of not using function evaluations, and therefore being the fastest out of the three; however, it’s accuracy is the least reliable.
-The Tanabe and Newton methods both are significantly slower, but more accurate.
-In particular, the Newton method is the most accurate.
+Despite being one of the most basic probability distributions for
+multi-dimensional directional statistics, estimating the maximum
+likelihood for the vMF distribution is difficult due to a transcendental
+(non closed form) equation that needs to be solved in order to compute
+the concentration parameter (Sra, 1). This parameter can be approximated
+through several means, namely the Banerjee, Tanabe, and Newton methods.
+These methods have various advantages and disadvantages. The Banerjee
+method has the advantage of not using function evaluations, and
+therefore being the fastest out of the three; however, it’s accuracy is
+the least reliable. The Tanabe and Newton methods both are significantly
+slower, but more accurate. In particular, the Newton method is the most
+accurate.
 
-Of particular importance to analyzing vMF models is mixing multiple vMF distributions, which allows for multiple clusters of data that point in different directions with varying levels of concentration.
-Clustering algorithms often use the generative model framework, applying the expectation maximization algorithm.
-Estimating the concentration parameter k for each of these individual components has been of crucial importance, as it would yield better results, particularly for difficult clustering tasks in higher dimensional spaces (Banerjee, 1345).
+Of particular importance to analyzing vMF models is mixing multiple vMF
+distributions, which allows for multiple clusters of data that point in
+different directions with varying levels of concentration. Clustering
+algorithms often use the generative model framework, applying the
+expectation maximization algorithm. Estimating the concentration
+parameter k for each of these individual components has been of crucial
+importance, as it would yield better results, particularly for difficult
+clustering tasks in higher dimensional spaces (Banerjee, 1345).
 
-In order to fit these vMF models (estimate the parameters of them in order to best explain the data), the Expectation-Maximization, or EM algorithm, is used.
-VMF models that only have a single distribution do not require the EM algorithm; however, the EM algorithm becomes crucial when there are clusters of data, meaning various vMF models are mixed together.
-The expectation stage of the EM model computes the probability each data point came from a certain cluster, then during the maximization stage attempts to best update the parameters of each vMF distribution in order to best fit the data (Hornik).
-In Hornik and Grun’s movMF, an R package using the EM algorithm has been created with the aim of fitting vMF mixtures: “The R package movMF contains functionality to draw samples from finite mixtures of von Mises-Fisher distributions and to fit these models using the expectation-maximization algorithm for maximum likelihood estimation” (Hornik, 1).
-Various examples of use are given, such as clustering text documents (Hornik, 24), which can group components within a document based on the detection of certain keywords.
+In order to fit these vMF models (estimate the parameters of them in
+order to best explain the data), the Expectation-Maximization, or EM
+algorithm, is used. vMF models that only have a single distribution do
+not require the EM algorithm; however, the EM algorithm becomes crucial
+when there are clusters of data, meaning various vMF models are mixed
+together. The expectation stage of the EM model computes the probability
+each data point came from a certain cluster, then during the
+maximization stage attempts to best update the parameters of each vMF
+distribution in order to best fit the data (Hornik). In Hornik and
+Grun’s movMF, an R package using the EM algorithm has been created with
+the aim of fitting vMF mixtures: “The R package movMF contains
+functionality to draw samples from finite mixtures of von Mises-Fisher
+distributions and to fit these models using the expectation-maximization
+algorithm for maximum likelihood estimation” (Hornik, 1). Various
+examples of use are given, such as clustering text documents (Hornik,
+24), which can group components within a document based on the detection
+of certain keywords.
 
-In this project, implementation of the EM algorithm will be done using the movRF package.
-Various sets of vMF data will be analyzed and clustered, with mean direction and k-values being estimated.
-Comparisons to Euclidean k-value clustering techniques will be drawn, and clusters will be visualized on the unit sphere.
-Overall, we will aim to analyze how well the movRF package implements the EM algorithm for analyzing vMF data, and conduct several case studies using various datasets.
- 
+In this project, implementation of the EM algorithm will be done using
+the movRF package. Various sets of vMF data will be analyzed and
+clustered, with mean direction and k-values being estimated. Comparisons
+to Euclidean k-value clustering techniques will be drawn, and clusters
+will be visualized on the unit sphere for demonstration. Overall, we
+will aim to analyze how well the movRF package implements the EM
+algorithm for analyzing vMF data, and conduct several case studies using
+various data sets.
+
 ## Simulation: Generating vMF Data in 3D
 
-In order to a handle on what simulated vMF data is like, we create a basic dataset that shows what a vMF distribution looks like.
+In order to a handle on what simulated vMF data is like, we create and
+plot a basic data set that shows what a vMF distribution looks like.
 
 The parameters we are working with are as follows:
 
-**mu**: The mean direction unit vectors are pointing in.
-This cannot be made more difficult, and all mu values will be of equal complexity for movMF to work with.
+**mu**: The mean direction unit vectors are pointing in. This cannot be
+made more "difficult", and all mu values will be of equal complexity for
+movMF to work with.
 
-**kappa**: The measure of how strongly data is concentrated around the mean direction.
-A lower value means lower concentration, making it more difficult for movMF to estimate the mean direction.
-A value of 0 would even mean complete dispersion of unit vectors, with no adherence to the mean direction whatsoever.
-A higher concentration means increasing adherence to the mean direction.
+**kappa**: The measure of how strongly data is concentrated around the
+mean direction. A lower value means lower concentration, making it more
+difficult for movMF to estimate the mean direction. A value of 0 would
+even mean complete dispersion of unit vectors, with no adherence to the
+mean direction whatsoever. A higher concentration means increasing
+adherence to the mean direction.
 
-**n**: The number of unit vectors (points) we are working with.
-Higher values of n means a greater sample size for movMF to work with, creating more ease of estimating the mean direction.
+**n**: The number of unit vectors (points) we are working with. Higher
+values of n means a greater sample size for movMF to work with, creating
+more ease of estimating the mean direction.
 
 # Creating basic parameter set
 
 ```{r basic params}
 # A very optimal set of parameters for a vMF analysis. 
 mu_base <- c(0, 0, 1) # mean direction
-kappa_base <- 10 
-n_base <- 200
+kappa_base <- 10 # concentration of 10 (pretty low)
+n_base <- 200 # 200 total points
 
 # Normalizing base parameters
 mu_base_norm <- sqrt(sum(mu_base^2))
@@ -202,14 +247,16 @@ mu_base_norm
 mu_base <- mu_base / sqrt(sum(mu_base^2))
 mu_base
 ```
+
 # Simulating base vMF distribution data
 
-This will simulate the hundred data points requested in the base vMF data.
-We only print the head of data created, so six points are visible.
-Printing the length of the data divided by three confirms 200 points were created, with three coordinates each.
+This will simulate the hundred data points requested in the base vMF
+data. We only print the head of data created, so six points are visible.
+Printing the length of the data divided by three confirms 200 points
+were created, with three coordinates each.
 
 ```{r Data Simulation: Base}
-X_base <- rmovMF(n_base, mu_base, kappa_base)
+X_base <- rmovMF(n_base, theta = mu_base * kappa_base)
 head(X_base)
 print("length: " )
 print(length(X_base)/3)
@@ -225,9 +272,11 @@ summary(lens_base)
 
 ## Visualization
 
-We can get a good graph on what this data looks like by visualizing it, both on the three 2D planes and a 3D representation of the unit sphere.
+We can get a good graph on what this data looks like by visualizing it,
+both on the three 2D planes and a 3D representation of the unit sphere.
 
 # 2D planes
+
 ```{r plot-xy: base}
 df <- data.frame(x = X_base[,1], y = X_base[,2], z = X_base[,3])
 
@@ -245,7 +294,7 @@ ggplot(df, aes(x, z)) +
   geom_point(alpha = 0.6) +
   coord_equal() +
   theme_minimal() +
-  labs(title = "Projection of base vMF data Samples (x vs z)", x = "x", z = "z")
+  labs(title = "Projection of base vMF data Samples (x vs z)", x = "x")
 ```
 
 ```{r plot-yz: base}
@@ -255,10 +304,11 @@ ggplot(df, aes(y, z)) +
   geom_point(alpha = 0.6) +
   coord_equal() +
   theme_minimal() +
-  labs(title = "Projection of base vMF data Samples (y vs z)", y = "y", z = "z")
+  labs(title = "Projection of base vMF data Samples (y vs z)", y = "y")
 ```
 
 # 3D projection
+
 ```{r base plot-3d}
 library(rgl)
 open3d()
@@ -268,7 +318,8 @@ rglwidget()
 
 ## Parameter estimation
 
-In parameter estimation, we can attempt to estimate mean and concentration without knowing beforehand.
+With parameter estimation, we can attempt to estimate mean and
+concentration without knowing beforehand.
 
 ```{r base parameter estimation}
 # Estimating base mean
@@ -277,7 +328,11 @@ mu_base_hat <- mu_base_hat_raw / sqrt(sum(mu_base_hat_raw^2))
 mu_base_hat
 ```
 
-The degree of error between true mu and estimated one can be measured by taking angle between vectors.
+Compare the estimated mean [0.044, 0.059, 0.997] to the true mean [0, 0,
+1].
+
+The exact degree of error between true mu and the estimated mu can be
+measured by taking angle between vectors.
 
 ```{r base mu-comparison}
 mu_base_true <- mu_base
@@ -295,11 +350,12 @@ list(
 
 # Concentration estimation
 
-movMF can attempt to estimate the concentration variable K, which is the foremost variable being studied and approximated.
+movMF can attempt to estimate the concentration variable K, which is the
+foremost variable being studied and approximated.
 
 ```{r base k estimation}
 # Setting k to 1 fits a single vMF distribution. Therefore, the E step in the EM algorithm is skipped - every point will belong to the same component. Only the M step is used.
-fit1 <- movMF(X_base, k = 1)
+fit1 <- movMF(X_base, k = 1) # one mixture
 fit1
 
 kappa_base_hat <- norm(fit1$theta, "2")
@@ -313,16 +369,25 @@ list(
 )
 ```
 
-As we can see here, estimating the concentration is a much more difficult task than estimating the mean.
-The question remains of what exactly throws off the algorithm so much - is it sample size, or the concentration itself? These questions can be further investigated by the reader in the Phase 2 file, which includes this content and a further study into what effects the accuracy of movRF. For the sake of brevity, this file will only go in depth on later studies involving multiple mixtures.
+The question remains of what tend to throw off the algorithm more - is
+it sample size, or the concentration? These questions can be further
+investigated by the reader in the Phase 2 file, which includes this
+content and a further study into what effects the accuracy of movRF. For
+the sake of brevity, this file will only go in depth on later studies
+involving multiple mixtures.
 
 ## Multiple Mixtures
 
-In this section, mixtures of vMF distributions are fit, rather than just a single one. This is far more realistic for the work being done with movMF, as seldom are we dealing with just a single mixture. 
+In this section, mixtures of vMF distributions are fit, rather than just
+a single one. This is far more realistic for the work being done with
+movMF, as seldom are we dealing with just a single mixture.
 
 # Creating a basic mixture model
 
-This example mixture model, five mixtures are created with equal weights, and they are all very far away from each other. This is similar to the "base" model we used in the single distrubtion model, where the purpose of it is demonstration rather than rigorous testing.
+This example mixture model, five mixtures are created with equal
+weights, and they are all very far away from each other. This is similar
+to the "base" model we used in the single distrubtion model, where the
+purpose of it is demonstration rather than rigorous testing.
 
 ```{r simulated mixture}
 d <- 3 # Number of dimensions
@@ -365,7 +430,8 @@ table(z)
 
 # Visualizing the mixture
 
-# 2D planes 
+# 2D planes
+
 ```{r phase3 projections}
 plots <- plot_projections(X, label = z, title_prefix = "True mixture (simulated)")
 plots$p12
@@ -374,6 +440,7 @@ plots$p23
 ```
 
 # 3D projection
+
 ```{r phase3-3d, eval=TRUE}
 # Interactive 3D plot
 rgl::open3d()
@@ -383,9 +450,11 @@ rgl::title3d("Simulated mixture on the unit sphere")
 rgl::rglwidget()
 ```
 
-# Attempting to fix mixtures of vMF for multiple K, and select K
+## Attempting to fix mixtures of vMF for multiple mixtures, and selecting K (estimated number of mixtures)
 
-We will fit vMF mixtures, and compute BIC (grid over K). BIC is used for model selection, and helps us determine how well a model explains the data.
+We will fit vMF mixtures, and compute BIC (grid over K). BIC is used for
+model selection, and helps us determine how well a model explains the
+data.
 
 ```{r fit-grid}
 K_grid <- 1:8
@@ -409,10 +478,13 @@ bic_df <- data.frame(
 bic_df
 ```
 
-BIC is determining what amount of models the data most likely has,with a lower BIC being better. In this case, BIC shows that 5 is the best fit.
+BIC is determining what amount of models the data most likely has,with a
+lower BIC being better. In this case, BIC shows that 5 is the best fit.
 
-This chosen K makes sense, as we did indeed select 5 mixtures to work with earlier. However, the BIC was nearly flat, which indicate that movRF was starting to having some trouble.
-     
+This chosen K makes sense, as we did indeed select 5 mixtures to work
+with earlier. However, the BIC was nearly flat, which indicate that
+movRF was starting to having some trouble.
+
 ```{r choose-K}
 K_hat <- bic_df$K[which.min(bic_df$BIC)]
 K_hat
@@ -427,11 +499,64 @@ ggplot(bic_df, aes(x = K, y = BIC)) +
   labs(title = "Model selection for vMF mixtures", subtitle = "Choose K with the smallest BIC", x = "Number of components (K)", y = "BIC")
 ```
 
+We will now estimate this mixture with K-means and movMF, and see how
+much the two models agree or disagree.
+
+## Estimating mixture model with K-means
+
+```{r kmeans-euclid}
+km <- kmeans(X_unit, centers = K_hat, nstart = 25)
+km_cluster <- factor(km$cluster)
+
+table(km_cluster)
+```
+
+```{r km-projections}
+plots_km <- plot_projections(X_unit, label = km_cluster, title_prefix = paste0("Euclidean k-means (K = ", K_hat, ")"))
+plots_km$p12
+plots_km$p13
+plots_km$p23
+```
+
+## Estimating with movMF
+
+```{r vmf-clusters}
+vmf_cluster <- predict(best_fit)
+vmf_cluster <- factor(vmf_cluster)
+table(vmf_cluster)
+```
+
+```{r vmf-projections}
+plots_vmf <- plot_projections(X_unit, label = vmf_cluster, title_prefix = paste0("vMF mixture clustering (K = ", K_hat, ")"))
+plots_vmf$p12
+plots_vmf$p13
+plots_vmf$p23
+```
+
+Upon close inspection, some of the dots in the border areas between
+clusters do indeed switch from cluster to cluster depending on the
+algorithm used. An agreement matrix shows how many dots the algorithms
+put into a cluster itself:
+
+```{r agreement}
+# Simple agreement table (labels might be permuted, so interpret carefully)
+table(vmf_cluster, km_cluster)
+```
+
+Although there is some disagreement, for the most part we see that four
+clear clusters are established. However, there is some demonstrable
+difference between the estimates of both algorithms; which one is doing
+better?
+
 # Final Study
 
-In this analysis, a large scale comparison between the effectiveness of Euclidian and Spherical Analysis models is conducted. This is done via comparing against several variables:
+In this analysis, a large scale comparison between the effectiveness of
+Euclidian (K-means) and Spherical Analysis (movMF) models is conducted
+on multi-mixture models. This is done via comparing against several
+variables:
 
-1.  Total number of mixtures: The number of mixtures being fitted in each dataset.
+1.  Total number of mixtures: The number of mixtures being fitted in
+    each dataset.
 
 2.  Sample size: The total number of points in each dataset.
 
@@ -440,8 +565,12 @@ In this analysis, a large scale comparison between the effectiveness of Euclidia
 Three more variables represent the variance of mixtures, concentrations,
 and means:
 
-1. Variance of means: Means always being 90 degrees apart from each
-other wouldn't be too realistic.
+1.  Variance of means: Means always being exactly 90 degrees apart from
+    each other wouldn't be too realistic. In reality, most mixture
+    models will be far less optimal, and some clusters are likely to
+    overlap to varying degrees. In every one of these helper functions
+    range from 1 (most optimal) to 4 (difficult for estimation and very
+    unoptimal)
 
 ```{r mean variance helper function}
 # Generates K mean directions, with separation of the directions and number of mean directions specified.
@@ -521,9 +650,9 @@ for (i in seq_along(sims)) {
 ```
 
 2.  Variance of concentrations: Concentrations should not all be the
-    "average concentration"; this controls how much the concentrations
-    vary around the mean concentration. A dedicated helper function is
-    used to generate these kappas.
+    "average concentration"; this function controls how much the
+    concentrations vary around the mean concentration. A dedicated
+    helper function is used to generate these kappas.
 
 ```{r concentration variance helper function and example}
 make_kappas <- function(K, kappa_mean, variation = 1) {
@@ -601,7 +730,10 @@ for (i in seq_along(sims)) {
 }
 ```
 
-3. Variance of sample sizes: Mixture sizes vary from all being the same size (portion of total sample size allocated to them), to highly varying in what portion of the total sample size is allocated to them.
+3.  Variance of sample sizes: Mixture sizes vary from all being the same
+    size (portion of total sample size allocated to them), to highly
+    varying in what portion of the total sample size is allocated to
+    them.
 
 ```{r sample size variance example}
 make_weights <- function(K, variation = 1) {
@@ -666,6 +798,11 @@ for (i in seq_along(sims)) {
 # Superfunction used for each mixture setting
 
 ```{r superfunction}
+# This grid creates a massive simulation grid, and creates every possible combination of our variables.
+# n: sample size. goes from 100, 300, ..., 1000.
+# k: mean kappa. goes from 10, 30, ..., 100.
+# three variance variables mentioned in helper functions: goes through each of the four levels.
+
 simulate_complete <- function(number_mixtures) {
   grid <- expand.grid(
   n = seq(100, 1000, by = 200),
@@ -673,11 +810,11 @@ simulate_complete <- function(number_mixtures) {
   weight_var = 1:4,
   kappa_var = 1:4,
   mu_sep = 1:4,
-  rep = 1:25
+  rep = 1:25 # test is ran 25 times for a monte carlo experiment
 ) %>%
   as_tibble()
 
-K <- number_mixtures # Number of mixtures (two in this case)
+K <- number_mixtures # Number of mixtures (uses the only parameter, number_mixtures).
 d <- 3 # Number of dimensions (always three)
 
 with_progress({
@@ -688,10 +825,13 @@ with_progress({
     p(sprintf("Sim %d", i))
     row <- grid[i, ]
     
+    # randomly generating the variables for our analysis, based on given weight variance, mean of kappas, and separation of mixtures.
+    
     w <- make_weights(K, row$weight_var)
     kappas <- make_kappas(K, row$kappa_mean, row$kappa_var)
     mus <- generate_mus(K, d, row$mu_sep)
     
+    # putting together entire dataset
    sim <- simulate_vmf_mixture(
         d       = d,
         K_true  = K,
@@ -702,6 +842,7 @@ with_progress({
         force_min_one = TRUE
       )
     
+   # using vMF to fit model
     vmf_fit <- tryCatch(
       movMF::movMF(sim$X, k = K, nruns = 3),
       error = function(e) NULL
@@ -712,9 +853,11 @@ with_progress({
     vmf_score <- if (all(is.na(vmf_cluster))) NA else
       within_cosine(sim$X, vmf_cluster)
     
+    # using old fashioned k-means to fit model
     km <- kmeans(sim$X, centers = K, nstart = 5)
     km_score <- within_cosine(sim$X, km$cluster)
     
+    # stores all of our parameters, and score from two algorithms, in a dataframe
     data.frame(
       n = row$n,
       kappa_mean = row$kappa_mean,
@@ -731,12 +874,14 @@ with_progress({
   results <- bind_rows(results)
 })
 
+# compute how often vMF beat K-means
 results <- results %>%
   mutate(
     diff = vmf_score - km_score,
     vmf_win = vmf_score > km_score
   )
 
+# compute average score difference for each combination of variables
 win_df <- results %>%
   group_by(n, kappa_mean, weight_var, kappa_var, mu_sep) %>%
   summarise(
@@ -745,7 +890,9 @@ win_df <- results %>%
     .groups = "drop"
   )
 
-for (lvl in 1:4) {
+# then, for each level of μ separation, we plot it all into a winrate heatmap so we can see where vMF is doing better.
+
+for (lvl in 1:4) { # go through each μ separation level
   
   plot_df <- win_df %>%
     filter(mu_sep == lvl)
@@ -776,75 +923,6 @@ for (lvl in 1:4) {
   print(p)
   }
   invisible(list(raw = results, summary = win_df))
-}
-```
-
-# Specialized superfunction: Used for single sample sizes
-This superfunction variant was made to handle single mixtures, as the process is different enough from multiple mixtures to warrant it's own function.
-
-```{r singular superfunction}
-simulate_complete_single <- function() {
-  grid <- expand.grid(
-  n          = seq(100, 1000, by = 200), # We go from 100 to 1000 sample size, in iterations of 200
-  kappa_mean = seq(10, 100, by = 20), # We go from 10 to 100 sample size, in iterations of 20
-  rep        = 1:25 # 25 repetitions to do Monte Carlo simulation
-) %>% as_tibble()
-  
-  K <- 1 # Only a single mixture
-  d <- 3 # Three dimensions, as per usual
-
-
-with_progress({
-  p <- progressor(steps = nrow(grid)) # Want to have progress bar if this is being ran on it's own. Otherwise, we have no idea where the simulation is going.
-  
-  results <- future_lapply(seq_len(nrow(grid)), function(i) {
-    p(sprintf("Sim %d", i))
-    row <- grid[i, ]
-    
-    mu_list <- list(c(1, 0, 0))
-    kappas  <- make_kappas(K, row$kappa_mean, variation = 1)
-    
-    # Generate data from a single vMF component
-    sim <- simulate_vmf_mixture(
-      d          = d,
-      K_true     = K,
-      n          = row$n,
-      w          = 1,                    
-      mu_list    = mu_list,
-      k_list     = kappas,
-      force_min_one = TRUE
-    )
-    
-    vmf_fit <- tryCatch(
-      movMF::movMF(sim$X, k = K, nruns = 3),
-      error = function(e) NULL
-    )
-    vmf_cluster <- if (is.null(vmf_fit)) NA else predict(vmf_fit)
-    vmf_score   <- if (all(is.na(vmf_cluster))) NA else   within_cosine(sim$X, vmf_cluster)
-    
-    km       <- kmeans(sim$X, centers = K, nstart = 5)
-    km_score <- within_cosine(sim$X, km$cluster)
-    
-    data.frame(
-      n          = row$n,
-      kappa_mean = row$kappa_mean,
-      rep        = row$rep,
-      vmf_score  = vmf_score,
-      km_score   = km_score
-    )
-  }, future.seed = TRUE)
-  
-  results <- bind_rows(results)
-})
-
-win_df <- results %>%
-  group_by(n, kappa_mean) %>%
-  summarise(
-    mean_tightness = mean(vmf_score, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-invisible(list(raw = results, summary = win_df))
 }
 ```
 
@@ -883,18 +961,35 @@ for (lvl in 1:4) {
   }
 }
 ```
-# Two mixtures analysis
 
-μ separation level 1 (more mixture separation): vMF has the edge with very unconcentrated mixtures, particularly when the mean concentration is low as well. Also this is perhaps a niche case, this is a good sign, as estimating mixtures is at it's most difficult here.
+**Two mixtures analysis**
 
-μ separation level 2 (less mixture separation): Similar to level 1. However, vMF only has a decisive edge with 
+μ separation level 1 (more mixture separation): vMF has the edge with
+very unconcentrated mixtures, particularly when the variance
+concentration between the two mixtures is low as well. Also this is
+perhaps a niche case, this is a good sign, as estimating mixtures is at
+it's most difficult here.
 
-μ separation level 3 (slight mixture clustering):
+μ separation level 2 (less mixture separation): Similar to level 1.
+However, vMF isn't as dominant at very low sample sizes, but also gains
+some traction with higher sample sizes. Beyond low kappa variation,
+kmeans wins or the results are inconclusive.
 
-μ separation level 4 (high mixture clustering):
-In this simulation, vMF seems to dominate a specific case: high mean concentration (50 - 90), concentrations are nearly uniform, and weights are nearly uniform to moderately varied. The trend slightly continues with concentrations being more varied, but rapidly tapers off when they become even more varied.
+μ separation level 3 (slight mixture clustering): A noted change from
+the previous two μ separation levels. vMF does somewhat well with low
+kappa variance when the mean concentration is 30-50, for all weight
+variations besides high.
 
-Overall Analysis:
+μ separation level 4 (high mixture clustering): Very similar to μ
+separation level 3, albeit with the mean concentrations where vMF is
+effective shifting right.
+
+Overall Analysis: There seem to be two trends here. In the first two
+lower μ clustering levels, vMF does well with models where the mixtures
+have uniformly low concentration, and weights are not extremely varied.
+In the next two higher μ separation levels, vMF remains effective with
+low concentration variation, but more so with higher mean
+concentrations.
 
 # Three mixtures
 
@@ -928,23 +1023,36 @@ for (lvl in 1:4) {
   }
 }
 ```
-# Three mixtures analysis
 
-μ separation level 1 (more mixture separation): vMF has the edge with very unconcentrated mixtures, particularly when the mean concentration is low as well. Also this is perhaps a niche case, this is a good sign, as estimating mixtures is at it's most difficult here.
+**Three mixtures analysis**
 
-μ separation level 2 (less mixture separation): Similar to level 1. However, vMF only has a decisive edge with 
+μ separation level 1 (more mixture separation): vMF has the edge with
+very unconcentrated mixtures, particularly when the mean concentration
+is low as well. Also this is perhaps a niche case, this is a good sign,
+as estimating mixtures is at it's most difficult here.
 
-μ separation level 3 (slight mixture clustering): vMF is does quite well when concentrations don't vary much and concentration isn't low. This trend continues until mixture weights highly vary; however, even in the most varied sample, vMF managed to hold on with very low sample sizes. This combination (low sample size, high weight variantion, AND low kappa variation) is quite difficult, so even though it is a sliver of the data, this shows a pain point where vMF is strong.
+μ separation level 2 (less mixture separation): Similar to level 1.
+However, vMF only has a decisive edge with medium concentrations that
+don't vary much from the mean. With high weight variation, this
+advantage ceases.
 
-μ separation level 4 (high mixture clustering): vMF has mostly completely lost the edge. With small sample sizes, sometimes it edges out k-means, but it is uncommon and only occurs with high kappa variation. 
+μ separation level 3 (slight mixture clustering): vMF is does quite well
+when concentrations don't vary much and concentration isn't low. This
+trend continues until mixture weights highly vary; however, even in the
+most varied sample, vMF managed to hold on with very low sample sizes.
+This combination (low sample size, high weight variantion, AND low kappa
+variation) is quite difficult, so even though it is a sliver of the
+data, this shows a pain point where vMF is strong.
 
-In this simulation, vMF seems to have the edge when:
+μ separation level 4 (high mixture clustering): vMF has mostly
+completely lost the edge. With small sample sizes, sometimes it edges
+out k-means, but it is uncommon and only occurs with high kappa
+variation.
 
-Overall Analysis:
-
-In this simulation, vMF seems to lose some of the edge it had in the two mixture distribution. It reliably holds an advantage only in two circumstances: 
-- Case 1 (in mean separation level 1): Mixtures are very far from each other, the weights are not extremely varied, the mean concentrations are very low and unformly sparse.
-- Case 2 (in mean separation level 3): Mixtures are somewhat closer to each other, concentrations are >= 50, and concentrations aren't often far from the mean concentration of all the mixtures.
+Overall Analysis: With three mixtures, vMF wins when concentrations are
+not varied much. As the means of mixtures continue to cluster and get
+closer to each other, vMF requires higher concentrations to keep
+winning, until with high clustering it rarely has an advantage.
 
 # Five mixtures
 
@@ -978,21 +1086,32 @@ for (lvl in 1:4) {
   }
 }
 ```
-# Five mixtures analysis
 
-μ separation level 1 (more mixture separation): vMF seems to have the edge when concentrations aren't varied and are nearly uniform, and weights are nearly uniform to moderatly varied. In increasing variations of concentrations, the efficacy of vMF vs kmeans becomes more contested.
+**Five mixtures analysis**
 
-μ separation level 2 (less mixture separation): Much like separation level 1, but vMF is less dominant overall. Interestingly, kmeans completely dominates where mean concentration is very low.
+μ separation level 1 (more mixture separation): vMF seems to have the
+edge when concentrations aren't varied and are nearly uniform, and
+weights are nearly uniform to moderately varied. In increasing
+variations of concentrations, the efficacy of vMF vs K-means becomes
+more contested.
 
-μ separation level 3 (slight mixture clustering):
+μ separation level 2 (less mixture separation): Much like separation
+level 1, but vMF is less dominant overall. Interestingly, K-means
+completely dominates where mean concentration is very low. vMF has a
+better shot at low sample size models.
 
-μ separation level 4 (high mixture clustering):
+μ separation level 3 (slight mixture clustering): Similiar to level 2.
+vMF only has the edge with some smaller sample sizes.
 
-In this simulation, vMF seems to have the edge when:
+μ separation level 4 (high mixture clustering): vMF has totally lost
+most of it's edge, but seems to make a small resurgence with very low
+concentrations when concentrations aren't varied.
 
-Overall Analysis:
+Overall Analysis: vMF wins with edge cases, namely less clustering of
+mixtures and lower weight and concentration variation.
 
 # Seven mixtures
+
 ```{r seven mixtures simuation, cache=TRUE}
 if (!file.exists("simulation_results_K7.rds")) {
   message("No saved results found — running full simulation...")
@@ -1023,18 +1142,74 @@ for (lvl in 1:4) {
   }
 }
 ```
-# Seven mixtures analysis
 
-μ separation level 1 (more mixture separation): 
+**Seven mixtures analysis**
 
-μ separation level 2 (less mixture separation):
+μ separation level 1 (more mixture separation): vMF wins with low
+concentration variation and higher mean concentrations. Interestingly,
+it really exceeds with low concentration variation, low sample sizes,
+and high weight variation.
 
-μ separation level 3 (slight mixture clustering):
+μ separation level 2, 3, and 4: Trends become harder to note here. It
+seems vMF has a good shot with low to medium concentration variation and
+low to medium weight variation.
 
-μ separation level 4 (high mixture clustering):
-
-Overall Analysis:
+Overall Analysis: vmF sporadically wins low to medium concentration
+variation and low to medium weight variation. It is hard to "prove" here
+that vMF is the better option, and more testing may be needed.
 
 # Conclusion
 
+In all four mixture models studied, vMF tends to lose steam as
+concentrations vary more from the mean concentration given. A recurring
+trend, namely with two, three, and five mixture models is that vMF
+excels with low concentration variance, but as mixtures cluster together
+more and become less optimal, vMF shifts from doing well with low
+concentrations to doing well with higher concentrations. In most tiles
+where vMF vs K-means is inconclusive, K-means does better with higher
+sample sizes, but as sample sizes decrease, vMF occasionally gains the
+edge, particularly with very low sample sizes.
+
 # Limitations and future work
+
+Obviously I would've liked to have gone more in depth with this,
+exploring the limits of more variables, and testing extreme edge cases
+where both models are going to struggle and the strengths of one model
+are more likely to make it come out on top. However, due to time and
+computing constraints, a general experiment across at a wide range of
+mixture models was done. Also, more experiments would've assured that
+this experiment was more accurate and less prone to outliers skewing the
+data; 70 trials compared to 25 would give more peace of mind.
+
+Further directions this study could go in include:
+
+-   A great next stage could be some sort of resulting function that
+    takes in nearly any mixture model, and predicts whether vMF or
+    K-means is the better choice.
+
+-   Nearly every practical range of variables tested, some delineation
+    of when accurate testing is impossible established.
+
+-   Perhaps a "smoother" heatmap that doesn't even have tiling, but a
+    smooth transition between colors that indicate whether vMF or
+    K-means is winning. However, this would involved far more testing to
+    be smooth, as well as far more repetitions to accurately tie down
+    scores.
+
+-   Perhaps testing in more dimensions, if applicable. Regardless,
+    visualization could become far more difficult at this stage, and a
+    function predicting whether vMF or K-means is more applicable might
+    be the only helpful outcome.
+
+# References
+
+Mardia, K. V. and Jupp, P. E. (2000). Directional Statistics. Wiley.
+
+Banerjee, A., Dhillon, I. S., Ghosh, J., and Sra, S. (2005). Clustering
+on the Unit Hypersphere using von Mises–Fisher Distributions.
+
+Sra, S. (2012). A short note on parameter approximation for von
+Mises–Fisher distributions.
+
+Hornik, K. and Grün, B. (2014). movMF: An R package for fitting mixtures
+of von Mises–Fisher distributions.

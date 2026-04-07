@@ -498,6 +498,4 @@ A slight pattern seems to exist where smaller sample size (0 - 300) data sets ar
 
 # Interpretation and Writing
 
-```{Interpretation and Writing}
 For the most part, movRF seems to do a great job at estimating vMF distributions. Angles of error rarely exceed 5 and are often below 1, and even challenging datasets do not throw it off extremely hard. However, mixed data sets were not reviewed here, and more analysis on this is needed. In addition, small outliers seem to exist, and running the same experiments over a mixture of data sets, particularly with the same parameters, could give more accurate data. 
-```
